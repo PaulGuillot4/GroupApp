@@ -121,19 +121,7 @@ class PrivateMessageListView(APIView):
                 http_status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check they share at least one group
-        my_groups = set(
-            GroupMember.objects.filter(user=request.user).values_list("group_id", flat=True)
-        )
-        other_groups = set(
-            GroupMember.objects.filter(user=other_user).values_list("group_id", flat=True)
-        )
-        if not my_groups & other_groups:
-            return _error(
-                code="NO_COMMON_GROUP",
-                message="You must share at least one group to view private messages.",
-                http_status=status.HTTP_403_FORBIDDEN,
-            )
+        # Removed 'must share a group' restriction to allow normal private messaging
 
         messages = Message.objects.filter(
             type="private"

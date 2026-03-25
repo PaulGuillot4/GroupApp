@@ -124,7 +124,15 @@ def _mark_read(message_id, user):
             )
         except Exception:
             pass
-    return Message.objects.filter(pk=message_id).exists()
+    msg = Message.objects.filter(pk=message_id).first()
+    if msg:
+        if msg.type == "group":
+            return msg.sender_id, f"group_{msg.group_id}"
+        elif msg.type == "channel":
+            return msg.sender_id, f"channel_{msg.channel_id}"
+        elif msg.type == "private":
+            return msg.sender_id, _private_room_name(msg.sender_id, msg.receiver_id)
+    return None, None
 
 
 @database_sync_to_async
@@ -215,9 +223,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         self.user = user
         self.rooms = set()
+        
+        # Join personal room for private notifications
+        self.personal_room = f"user_{self.user.id}"
+        await self.channel_layer.group_add(self.personal_room, self.channel_name)
+        
         await self.accept()
 
     async def disconnect(self, close_code):
+        if hasattr(self, 'personal_room'):
+            await self.channel_layer.group_discard(self.personal_room, self.channel_name)
+
         # Leave all rooms
         for room in list(self.rooms):
             await self.channel_layer.group_discard(room, self.channel_name)
@@ -277,7 +293,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             parts = room_name.split("_")
             if len(parts) == 3:
                 other_id = parts[2] if str(parts[1]) == str(self.user.id) else parts[1]
-                has_access = await _user_exists(other_id) and await _share_common_group(self.user, other_id)
+                has_access = await _user_exists(other_id)
 
         if not has_access:
             await self.close(code=4003)
@@ -334,6 +350,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "type": "chat.new_message",
             "message": msg_data,
         })
+        
+        # If private, also broadcast to both users' personal rooms so they get notifications / live updates
+        # even if they do not have the private room actively opened.
+        if kind == "private":
+            await self.channel_layer.group_send(f"user_{db_room_id}", {
+                "type": "chat.new_message",
+                "message": msg_data,
+            })
+            await self.channel_layer.group_send(f"user_{self.user.id}", {
+                "type": "chat.new_message",
+                "message": msg_data,
+            })
 
     async def _handle_typing(self, data):
         room_id_raw = data.get("roomId", "")
@@ -352,18 +380,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.send_json({"error": "messageId is required."})
             return
 
-        exists = await _mark_read(message_id, self.user)
-        if not exists:
+        sender_id, room_name = await _mark_read(message_id, self.user)
+        if not sender_id:
             await self.send_json({"error": "Message not found"})
             return
 
-        # Broadcast to all rooms this user is in (the message could be in any)
-        for room_name in self.rooms:
-            await self.channel_layer.group_send(room_name, {
-                "type": "chat.message_read",
-                "messageId": str(message_id),
-                "userId": self.user.id,
-            })
+        payload = {
+            "type": "chat.message_read",
+            "messageId": str(message_id),
+            "userId": self.user.id,
+        }
+        
+        # Notify the sender specifically
+        await self.channel_layer.group_send(f"user_{sender_id}", payload)
+        
+        # In a group setting, also notify the room
+        if room_name:
+            await self.channel_layer.group_send(room_name, payload)
 
     async def _handle_set_presence(self, data):
         presence = data.get("status", "online")
@@ -386,18 +419,28 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def chat_new_message(self, event):
         """Broadcast new_message to connected clients."""
+        msg = event["message"]
         await self.send_json({
             "event": "new_message",
-            "message": event["message"],
+            "message": msg,
         })
         # Mark as delivered for everyone except sender
-        msg = event["message"]
         if msg["sender"]["id"] != self.user.id:
             await _mark_delivered(msg["id"], self.user)
-            await self.send_json({
-                "event": "message_delivered",
+            # Notify the sender that this user received it
+            sender_id = msg["sender"]["id"]
+            await self.channel_layer.group_send(f"user_{sender_id}", {
+                "type": "chat.message_delivered",
                 "messageId": msg["id"],
+                "userId": self.user.id
             })
+
+    async def chat_message_delivered(self, event):
+        await self.send_json({
+            "event": "message_delivered",
+            "messageId": event["messageId"],
+            "userId": event["userId"],
+        })
 
     async def chat_message_read(self, event):
         await self.send_json({

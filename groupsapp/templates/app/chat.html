@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block head %}
+<!-- Material Symbols for icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+{% endblock %}
+
+{% block content %}
+<div class="flex h-screen w-full bg-wa-dark overflow-hidden">
+    
+    <!-- LEFT PANEL: Groups & Channels -->
+    <div class="w-1/3 min-w-[300px] max-w-[400px] flex flex-col border-r border-wa-border bg-wa-darker relative z-10" id="left-panel">
+        
+        <!-- Header -->
+        <div class="h-16 bg-wa-panel flex items-center justify-between px-4 border-b border-wa-border shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-gray-600 overflow-hidden cursor-pointer" id="my-profile-btn">
+                    <img id="my-avatar" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Profile" class="w-full h-full object-cover hidden">
+                </div>
+                <span class="font-semibold text-wa-light" id="my-username">Loading...</span>
+            </div>
+            <div class="flex items-center gap-3 text-[#aebac1]">
+                <button title="Create Group" id="btn-create-group" class="hover:bg-wa-dark rounded-full p-2 transition-colors">
+                    <span class="material-symbols-outlined">group_add</span>
+                </button>
+                <button title="Logout" id="btn-logout" class="hover:bg-wa-dark rounded-full p-2 transition-colors">
+                    <span class="material-symbols-outlined">logout</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Search / New chat -->
+        <div class="p-2 bg-wa-darker border-b border-wa-border shrink-0">
+            <div class="bg-wa-panel rounded-lg flex items-center px-4 py-1.5 focus-within:bg-[#202c33]">
+                <span class="material-symbols-outlined text-sm text-[#8696a0] mr-3">search</span>
+                <input type="text" id="search-input" placeholder="Search users by name or email" class="bg-transparent w-full outline-none text-sm text-wa-light placeholder-[#8696a0]">
+            </div>
+        </div>
+
+        <!-- Chats List -->
+        <div class="flex-1 overflow-y-auto w-full custom-scrollbar" id="groups-list">
+            <!-- Dynamically populated -->
+            <div class="p-4 text-center text-sm text-[#8696a0]" id="loading-groups">Loading groups...</div>
+        </div>
+
+    </div>
+
+    <!-- CENTRAL PANEL: Active Chat -->
+    <div class="flex-1 flex flex-col bg-wa-dark relative" id="center-panel">
+        
+        <!-- Placeholder when no chat selected -->
+        <div id="no-chat-selected" class="absolute inset-0 flex flex-col items-center justify-center bg-wa-dark z-20">
+            <h2 class="text-3xl font-light text-wa-light mb-4">GroupsApp Web</h2>
+            <p class="text-[#8696a0]">Select a group or channel to start messaging.</p>
+        </div>
+
+        <!-- Header -->
+        <div class="h-16 bg-wa-panel flex items-center justify-between px-4 border-b border-wa-border shrink-0 cursor-pointer" id="chat-header">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-full bg-gray-600 overflow-hidden">
+                    <img id="active-chat-avatar" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Chat Avatar" class="w-full h-full object-cover">
+                </div>
+                <div>
+                    <h2 class="font-semibold text-wa-light" id="active-chat-name">Connecting...</h2>
+                    <p class="text-xs text-[#8696a0]" id="active-chat-status">click here for group info</p>
+                </div>
+            </div>
+            <div class="flex gap-4 text-[#aebac1]">
+                <button class="material-symbols-outlined">search</button>
+                <button class="material-symbols-outlined">more_vert</button>
+            </div>
+        </div>
+
+        <!-- Messages Area (Background with pattern) -->
+        <div class="flex-1 overflow-y-auto px-[5%] py-4 custom-scrollbar relative bg-[#0b141a]" id="messages-container" style="background-image: url('https://web.whatsapp.com/img/bg-chat-tile-dark_a4be512e7195b6b733d9110b408f075d.png'); background-size: 400px; opacity: 0.9;">
+            <!-- Dynamically populated -->
+            <div id="messages-list" class="flex flex-col gap-2 justify-end min-h-full"></div>
+            <!-- Typing indicator -->
+            <div id="typing-indicator" class="hidden text-xs italic text-[#8696a0] mt-2 bg-wa-panel rounded-lg w-max px-3 py-1 self-start">Someone is typing...</div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="min-h-[62px] bg-wa-panel flex items-center px-4 py-3 gap-3 shrink-0">
+            <button id="btn-emoji" class="text-[#8696a0] hover:text-wa-light transition-colors material-symbols-outlined">sentiment_satisfied</button>
+            <div class="relative">
+                <button class="text-[#8696a0] hover:text-wa-light transition-colors material-symbols-outlined" id="btn-attach">attach_file</button>
+                <input type="file" id="file-input" class="hidden">
+            </div>
+            <div class="flex-1 bg-[#2a3942] rounded-lg">
+                <input type="text" id="message-input" placeholder="Type a message" class="w-full bg-transparent outline-none px-4 py-2.5 text-wa-light rounded-lg" autocomplete="off" disabled>
+            </div>
+            <button class="text-[#8696a0] hover:text-[#00a884] transition-colors material-symbols-outlined" id="btn-send-message">send</button>
+        </div>
+    </div>
+
+    <!-- RIGHT PANEL: Group Info (Collapsible) -->
+    <div class="w-0 overflow-hidden border-l border-wa-border bg-[#111b21] flex flex-col transition-all duration-300 ease-in-out shrink-0" id="right-panel">
+        <div class="h-16 bg-wa-panel flex items-center px-4 shrink-0 gap-6">
+            <button class="material-symbols-outlined text-[#8696a0]" id="btn-close-right">close</button>
+            <span class="font-semibold">Contact info</span>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto custom-scrollbar">
+            <div class="p-6 bg-[#111b21] flex flex-col items-center border-b border-wa-border shadow">
+                <div class="w-48 h-48 rounded-full overflow-hidden mb-4 bg-gray-600">
+                    <img id="info-avatar" src="" class="w-full h-full object-cover">
+                </div>
+                <h2 class="text-xl font-semibold text-wa-light" id="info-name">Group Name</h2>
+                <p class="text-sm text-[#8696a0]" id="info-desc">Description goes here</p>
+            </div>
+
+            <!-- Members list -->
+            <div class="bg-[#111b21] mt-2 border-y border-wa-border shadow">
+                <div class="px-6 py-4 text-[#00a884] text-sm font-semibold">Members</div>
+                <div id="info-members" class="flex flex-col pb-2">
+                    <!-- Dynamic -->
+                </div>
+            </div>
+            
+            <div class="p-6 text-center">
+                <button class="text-red-500 hover:text-red-400 font-semibold text-sm flex items-center justify-center gap-2 w-full" id="btn-leave-group">
+                    <span class="material-symbols-outlined">exit_to_app</span> Leave group
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Modal Create Group -->
+<div id="modal-create-group" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+    <div class="bg-wa-panel p-6 rounded-lg w-full max-w-sm border border-wa-border">
+        <h2 class="text-xl font-semibold text-wa-light mb-4">Create New Group</h2>
+        <input type="text" id="new-group-name" placeholder="Group Name" class="w-full bg-[#2a3942] border border-transparent focus:border-[#00a884] rounded px-4 py-2 text-[#e9edef] outline-none transition-colors mb-4">
+        <div class="flex justify-end gap-3">
+            <button id="btn-cancel-group" class="text-gray-400 hover:text-white px-4 py-2">Cancel</button>
+            <button id="btn-submit-group" class="bg-[#00a884] hover:bg-[#008f6f] text-[#111b21] font-semibold px-4 py-2 rounded">Create</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
