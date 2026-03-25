@@ -1,0 +1,22 @@
+# Core
+Django==4.2.*
+daphne==4.*
+
+# Django REST Framework + JWT
+djangorestframework==3.14.*
+djangorestframework-simplejwt==5.*
+
+# Django Channels (in-memory layer for now)
+channels==4.*
+
+# Database
+psycopg2-binary==2.9.*
+
+# CORS
+django-cors-headers==4.*
+
+# Images
+Pillow==10.*
+
+# Environment
+python-dotenv==1.*
