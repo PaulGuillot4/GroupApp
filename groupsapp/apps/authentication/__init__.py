@@ -1,1 +1,1 @@
-default_app_config = "apps.authentication.apps.AuthenticationConfig"
+# Authentication app – handles user registration, login, logout, and JWT token management.

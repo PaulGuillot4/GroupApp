@@ -1,0 +1,30 @@
+# Version control
+.git
+.gitignore
+
+# Environment
+.env
+.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Python bytecode
+__pycache__
+*.py[cod]
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Media uploads (use Docker volumes instead)
+media/
+
+# Documentation
+*.md
+CONTEXT.md
+
+# Docker artifacts
+docker-compose.yml

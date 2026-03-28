@@ -20,3 +20,6 @@ Pillow==10.*
 
 # Environment
 python-dotenv==1.*
+
+# Static file serving under ASGI/Daphne (replaces runserver static handling)
+whitenoise==6.*

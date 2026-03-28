@@ -1,0 +1,50 @@
+/* ──────────────────────────────────────────────────────────────────
+   GroupsApp Chat Styles
+   Extracted from inline <style> in chat.html for SRP compliance.
+   ────────────────────────────────────────────────────────────────── */
+
+/* ── CSS Custom Properties (Design Tokens) ─────────────────────── */
+:root {
+    --wa-dark:        #111b21;
+    --wa-darker:      #0b141a;
+    --wa-panel:       #202c33;
+    --wa-border:      #2a3942;
+    --wa-light:       #e9edef;
+    --wa-accent:      #00a884;
+    --wa-accent-hover:#008f6f;
+    --wa-muted:       #8696a0;
+    --wa-blue:        #53bdeb;
+    --wa-outgoing:    #005c4b;
+    --wa-incoming:    #202c33;
+}
+
+/* ── WhatsApp-like read receipt ticks ───────────────────────────── */
+.msg-tick {
+    font-size: 14px;
+    font-weight: 900;
+    margin-left: 2px;
+    display: inline-block;
+}
+.msg-tick.sent      { color: var(--wa-muted); opacity: 0.6; }
+.msg-tick.delivered  { color: var(--wa-muted); }
+.msg-tick.read       { color: var(--wa-blue); }
+
+/* ── Messaging area scroll ─────────────────────────────────────── */
+#messages-container {
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Image messages ────────────────────────────────────────────── */
+.msg-image {
+    max-width: 100%;
+    border-radius: 8px;
+    margin-top: 4px;
+    cursor: pointer;
+    background: var(--wa-dark);
+}
+
+/* ── Sidebar active conversation ───────────────────────────────── */
+.conv-item.active {
+    background-color: var(--wa-border);
+}

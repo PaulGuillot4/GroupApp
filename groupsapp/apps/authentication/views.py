@@ -1,48 +1,45 @@
+"""
+Authentication views – register, login, logout, and token refresh.
+"""
+
+from __future__ import annotations
+
+import logging
+
 from django.contrib.auth import get_user_model
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.authentication.serializers import LoginSerializer, RegisterSerializer
+from apps.authentication.services import AuthService
+from apps.core.responses import api_error_response
 from apps.users.serializers import PrivateUserSerializer
 
 User = get_user_model()
-
-
-def _error(code: str, message: str, details=None, http_status=status.HTTP_400_BAD_REQUEST):
-    payload = {"error": {"code": code, "message": message}}
-    if details is not None:
-        payload["error"]["details"] = details
-    return Response(payload, status=http_status)
-
-
-def _tokens_for_user(user):
-    refresh = RefreshToken.for_user(user)
-    # Embed extra claims
-    refresh["username"] = user.username
-    refresh["email"] = user.email
-    return {
-        "refresh_token": str(refresh),
-        "access_token": str(refresh.access_token),
-    }
+logger = logging.getLogger("groupsapp")
 
 
 class RegisterView(APIView):
+    """POST /api/auth/register – Create a new account."""
+
     permission_classes = [AllowAny]
 
-    def post(self, request):
+    def post(self, request: Request) -> Response:
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
-            return _error(
+            return api_error_response(
                 code="VALIDATION_ERROR",
                 message="Registration failed due to validation errors.",
                 details=serializer.errors,
             )
         user = serializer.save()
-        tokens = _tokens_for_user(user)
+        tokens = AuthService.generate_tokens(user)
+        logger.info("New user registered: %s (id=%s)", user.username, user.id)
         return Response(
             {"user": PrivateUserSerializer(user).data, **tokens},
             status=status.HTTP_201_CREATED,
@@ -50,44 +47,47 @@ class RegisterView(APIView):
 
 
 class LoginView(APIView):
+    """POST /api/auth/login – Authenticate with email and password."""
+
     permission_classes = [AllowAny]
 
-    def post(self, request):
+    def post(self, request: Request) -> Response:
         serializer = LoginSerializer(data=request.data)
         if not serializer.is_valid():
-            return _error(
+            return api_error_response(
                 code="VALIDATION_ERROR",
                 message="Login failed due to validation errors.",
                 details=serializer.errors,
             )
 
-        email = serializer.validated_data["email"]
-        password = serializer.validated_data["password"]
+        email: str = serializer.validated_data["email"]
+        password: str = serializer.validated_data["password"]
 
         try:
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
-            return _error(
+            return api_error_response(
                 code="INVALID_CREDENTIALS",
                 message="No account found with this email.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not user.check_password(password):
-            return _error(
+            return api_error_response(
                 code="INVALID_CREDENTIALS",
                 message="Invalid email or password.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
         if not user.is_active:
-            return _error(
+            return api_error_response(
                 code="ACCOUNT_INACTIVE",
                 message="This account has been deactivated.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        tokens = _tokens_for_user(user)
+        tokens = AuthService.generate_tokens(user)
+        logger.info("User logged in: %s (id=%s)", user.username, user.id)
         return Response(
             {"user": PrivateUserSerializer(user).data, **tokens},
             status=status.HTTP_200_OK,
@@ -95,12 +95,14 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
+    """POST /api/auth/logout – Blacklist the refresh token."""
+
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        refresh_token = request.data.get("refresh_token")
+    def post(self, request: Request) -> Response:
+        refresh_token: str | None = request.data.get("refresh_token")
         if not refresh_token:
-            return _error(
+            return api_error_response(
                 code="MISSING_TOKEN",
                 message="refresh_token is required.",
             )
@@ -108,27 +110,32 @@ class LogoutView(APIView):
             token = RefreshToken(refresh_token)
             token.blacklist()
         except TokenError:
-            return _error(
+            return api_error_response(
                 code="INVALID_TOKEN",
                 message="Token is invalid or already blacklisted.",
                 http_status=status.HTTP_401_UNAUTHORIZED,
             )
-        return Response({"message": "Successfully logged out."}, status=status.HTTP_200_OK)
+        logger.info("User logged out: %s", request.user.username)
+        return Response(
+            {"message": "Successfully logged out."},
+            status=status.HTTP_200_OK,
+        )
 
 
 class RefreshView(APIView):
+    """POST /api/auth/refresh – Rotate the JWT refresh token."""
+
     permission_classes = [AllowAny]
 
-    def post(self, request):
-        refresh_token = request.data.get("refresh_token")
+    def post(self, request: Request) -> Response:
+        refresh_token: str | None = request.data.get("refresh_token")
         if not refresh_token:
-            return _error(
+            return api_error_response(
                 code="MISSING_TOKEN",
                 message="refresh_token is required.",
             )
         try:
             token = RefreshToken(refresh_token)
-            # Rotate: blacklist old, issue new
             token.blacklist()
             new_refresh = RefreshToken.for_user(
                 User.objects.get(id=token["user_id"])
@@ -136,7 +143,7 @@ class RefreshView(APIView):
             new_refresh["username"] = token.get("username", "")
             new_refresh["email"] = token.get("email", "")
         except (TokenError, InvalidToken, User.DoesNotExist):
-            return _error(
+            return api_error_response(
                 code="INVALID_TOKEN",
                 message="Token is invalid or expired.",
                 http_status=status.HTTP_401_UNAUTHORIZED,

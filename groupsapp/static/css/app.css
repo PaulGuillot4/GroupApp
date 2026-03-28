@@ -1,4 +1,37 @@
-/* Custom Scrollbar for a sleek WhatsApp Web look */
+/* ──────────────────────────────────────────────────────────────────
+   GroupsApp – Global Styles
+   Design tokens and shared CSS utilities.
+   ────────────────────────────────────────────────────────────────── */
+
+/* ── Design Tokens (CSS Custom Properties) ─────────────────────── */
+:root {
+    --wa-dark:         #111b21;
+    --wa-darker:       #0b141a;
+    --wa-panel:        #202c33;
+    --wa-border:       #2a3942;
+    --wa-light:        #e9edef;
+    --wa-accent:       #00a884;
+    --wa-accent-hover: #008f6f;
+    --wa-muted:        #8696a0;
+    --wa-blue:         #53bdeb;
+    --wa-outgoing:     #005c4b;
+    --wa-incoming:     #202c33;
+
+    /* Spacing scale */
+    --space-xs:   4px;
+    --space-sm:   8px;
+    --space-md:  16px;
+    --space-lg:  24px;
+    --space-xl:  32px;
+
+    /* Border radius */
+    --radius-sm:  4px;
+    --radius-md:  8px;
+    --radius-lg: 16px;
+    --radius-full: 9999px;
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────────────── */
 .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -8,27 +41,27 @@
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
     background-color: rgba(255, 255, 255, 0.16);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background-color: rgba(255, 255, 255, 0.25);
 }
 
-/* Animations */
+/* ── Animations ────────────────────────────────────────────────── */
 .message-in {
     animation: fadeIn 0.2s ease-out forwards;
 }
 
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Image preview styles in chat */
+/* ── Image preview styles in chat ──────────────────────────────── */
 .chat-image {
     max-width: 300px;
     max-height: 300px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     cursor: pointer;
     transition: transform 0.2s;
 }
@@ -36,7 +69,7 @@
     transform: scale(1.02);
 }
 
-/* Base resets */
+/* ── Base resets ────────────────────────────────────────────────── */
 *:focus {
     outline: none !important;
 }

@@ -9,6 +9,7 @@ Events emitted (server → client):
 """
 
 import json
+import logging
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -18,6 +19,8 @@ from django.utils import timezone
 
 from apps.chat_messages.models import Message, MessageStatus
 from apps.groups.models import Channel, Group, GroupMember
+
+logger = logging.getLogger("groupsapp")
 
 User = get_user_model()
 
@@ -60,7 +63,7 @@ def _share_common_group(user, other_user_id):
 def _user_exists(user_id):
     return User.objects.filter(pk=user_id).exists()
 
-
+#room_kind es para saber si es grupo, canal o privado
 @database_sync_to_async
 def _create_message(sender, room_id, content, message_type, file_url, room_kind):
     """Create and return a Message + its serialized dict."""
@@ -123,7 +126,12 @@ def _mark_read(message_id, user):
                 message_id=message_id, user=user, status="read"
             )
         except Exception:
-            pass
+            logger.warning(
+                "Failed to create read status for message %s by user %s",
+                message_id,
+                user.id,
+                exc_info=True,
+            )
     msg = Message.objects.filter(pk=message_id).first()
     if msg:
         if msg.type == "group":
