@@ -134,3 +134,63 @@ class PrivateMessageListView(APIView):
         page = paginator.paginate_queryset(messages, request)
         serializer = MessageSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class ConversationListView(APIView):
+    """
+    GET /api/messages/conversations/
+    Returns a consolidated list of groups and private chats the user is active in.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # 1. Get all unique users I've chatted with
+        sent_to = Message.objects.filter(sender=request.user, type="private").values_list("receiver", flat=True)
+        received_from = Message.objects.filter(receiver=request.user, type="private").values_list("sender", flat=True)
+        user_ids = set(list(sent_to) + list(received_from))
+        
+        users = User.objects.filter(id__in=user_ids)
+        user_data = []
+        for u in users:
+            last_msg = Message.objects.filter(
+                Q(sender=request.user, receiver=u) | Q(sender=u, receiver=request.user),
+                type="private"
+            ).order_by("-created_at").first()
+            ts = last_msg.created_at if last_msg else u.date_joined
+            user_data.append({
+                "kind": "private",
+                "id": u.id,
+                "name": u.username,
+                "avatar": str(u.avatar) if hasattr(u, 'avatar') and u.avatar else None,
+                "last_message": MessageSerializer(last_msg).data if last_msg else None,
+                "updated_at": ts.isoformat() if ts else "",
+                "_sort_dt": ts,
+            })
+
+        # 2. Get all groups I'm in
+        from apps.groups.models import GroupMember
+        memberships = GroupMember.objects.filter(user=request.user).select_related("group")
+        group_data = []
+        for m in memberships:
+            g = m.group
+            last_msg = Message.objects.filter(group=g, type="group").order_by("-created_at").first()
+            ts = last_msg.created_at if last_msg else g.created_at
+            group_data.append({
+                "kind": "group",
+                "id": str(g.id),
+                "name": g.name,
+                "avatar": None,
+                "last_message": MessageSerializer(last_msg).data if last_msg else None,
+                "updated_at": ts.isoformat() if ts else "",
+                "_sort_dt": ts,
+            })
+
+        # 3. Merge and sort by updated_at
+        all_convs = user_data + group_data
+        all_convs.sort(key=lambda x: x["_sort_dt"], reverse=True)
+        
+        # Remove internal sort key before sending
+        for c in all_convs:
+            c.pop("_sort_dt")
+
+        return Response(all_convs)

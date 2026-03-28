@@ -26,7 +26,7 @@ class MessageStatusSerializer(serializers.ModelSerializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     sender = _SenderSerializer(read_only=True)
-    statuses = MessageStatusSerializer(many=True, read_only=True)
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
@@ -41,6 +41,30 @@ class MessageSerializer(serializers.ModelSerializer):
             "message_type",
             "file_url",
             "created_at",
-            "statuses",
+            "status",
         ]
         read_only_fields = fields
+
+    def get_status(self, obj):
+        """
+        Return the 'best' status for this message from the perspective of the sender.
+        For private: sender wants to see if receiver read it.
+        For group: show 'read' if anyone read, or 'delivered' if anyone got it.
+        """
+        statuses = obj.statuses.all()
+        if not statuses:
+            return "sent"
+        
+        # For private messages, we look for the status of the receiver specifically
+        if obj.type == "private" and obj.receiver_id:
+            receiver_status = statuses.filter(user_id=obj.receiver_id).first()
+            return receiver_status.status if receiver_status else "sent"
+            
+        # Simplified for group/channel: return the 'highest' status present
+        # (read > delivered > sent)
+        prio = {"read": 3, "delivered": 2, "sent": 1}
+        best = "sent"
+        for s in statuses:
+            if prio.get(s.status, 0) > prio.get(best, 0):
+                best = s.status
+        return best

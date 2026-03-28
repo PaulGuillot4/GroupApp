@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "apps.groups",
     "apps.chat_messages",
     "apps.files",
+    "apps.frontend",
 ]
 
 MIDDLEWARE = [

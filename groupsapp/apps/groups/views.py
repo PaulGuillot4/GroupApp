@@ -79,13 +79,20 @@ class GroupListCreateView(APIView):
                 message="Group creation failed due to validation errors.",
                 details=serializer.errors,
             )
+        
+        initial_members = serializer.validated_data.pop("initial_members", [])
         group = serializer.save(owner=request.user)
 
         # Owner is automatically admin
-        GroupMember.objects.create(group=group, user=request.user, role="admin")
+        GroupMember.objects.get_or_create(group=group, user=request.user, defaults={"role": "admin"})
+
+        # Add initial members
+        for user_id in initial_members:
+            if user_id != request.user.id:
+                GroupMember.objects.get_or_create(group=group, user_id=user_id, defaults={"role": "member"})
 
         # Create default "general" channel
-        Channel.objects.create(group=group, name="general")
+        Channel.objects.get_or_create(group=group, name="general")
 
         return Response(
             GroupSerializer(group).data,

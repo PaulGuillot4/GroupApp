@@ -120,9 +120,20 @@ class GroupSerializer(serializers.ModelSerializer):
 
 
 class CreateGroupSerializer(serializers.ModelSerializer):
+    initial_members = serializers.ListField(
+        child=serializers.IntegerField(), required=False, write_only=True
+    )
+
     class Meta:
         model = Group
-        fields = ["name", "description", "avatar", "subscription_type"]
+        fields = ["name", "description", "avatar", "subscription_type", "initial_members"]
+
+    def validate_initial_members(self, value):
+        if value:
+            valid_users = User.objects.filter(pk__in=value).count()
+            if valid_users != len(value):
+                raise serializers.ValidationError("Some users in the list do not exist.")
+        return value
 
     def validate_subscription_type(self, value):
         valid = [c[0] for c in Group.SUBSCRIPTION_CHOICES]

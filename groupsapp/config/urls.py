@@ -9,6 +9,8 @@ from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Frontend (HTML views)
+    path("", include("apps.frontend.urls")),
     # API routes
     path("api/auth/", include("apps.authentication.urls")),
     path("api/users/", include("apps.users.urls")),
