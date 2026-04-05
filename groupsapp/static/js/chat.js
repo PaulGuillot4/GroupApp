@@ -37,6 +37,12 @@ const pendingStatus = {};
 /** @type {Set<string>} JSON-encoded {id, name} objects */
 const selectedInitialMembers = new Set();
 
+/**
+ * Pagination state per room.
+ * @type {Object<string, { currentPage: number, hasMore: boolean, isLoading: boolean }>}
+ */
+const roomPagination = {};
+
 
 // ═══════════════════════════════════════════════════════════════════
 // 2. HELPERS
@@ -344,6 +350,11 @@ async function openPrivateChat(otherUser) {
     const list = document.getElementById("messages-list");
     list.innerHTML = "";
     document.getElementById("typing-indicator").classList.add("hidden");
+    // Reset UI elements for the new room
+    const startSep = document.getElementById("chat-start-sep");
+    if (startSep) startSep.classList.add("hidden");
+    const scrollBtn = document.getElementById("btn-scroll-bottom");
+    if (scrollBtn) scrollBtn.classList.add("hidden");
 
     activeRoom = {
         kind: "private",
@@ -354,14 +365,20 @@ async function openPrivateChat(otherUser) {
 
     joinRoom(roomId);
 
+    // Reset pagination state for this room
+    roomPagination[roomId] = { currentPage: 1, hasMore: true, isLoading: false };
+
     try {
-        const res = await apiFetch(`/api/messages/private/${otherUser.id}/`);
+        const res = await apiFetch(`/api/messages/private/${otherUser.id}/?page=1`);
         if (res.ok) {
             const data = await res.json();
             const messages = data.results || data;
             const sorted = Array.isArray(messages)
                 ? messages.slice().reverse()
                 : [];
+
+            // If fewer than page_size returned, no more pages
+            if (!data.next) roomPagination[roomId].hasMore = false;
 
             sorted.forEach((msg) => {
                 const el = buildMessageEl(msg, msg.status);
@@ -394,6 +411,11 @@ async function openGroupChat(group) {
     document.getElementById("message-input").focus();
     const list = document.getElementById("messages-list");
     list.innerHTML = "";
+    // Reset UI elements for the new room
+    const startSep = document.getElementById("chat-start-sep");
+    if (startSep) startSep.classList.add("hidden");
+    const scrollBtn = document.getElementById("btn-scroll-bottom");
+    if (scrollBtn) scrollBtn.classList.add("hidden");
 
     activeRoom = {
         kind: "group",
@@ -403,14 +425,20 @@ async function openGroupChat(group) {
     };
     joinRoom(roomId);
 
+    // Reset pagination state for this room
+    roomPagination[roomId] = { currentPage: 1, hasMore: true, isLoading: false };
+
     try {
-        const res = await apiFetch(`/api/messages/group/${group.id}/`);
+        const res = await apiFetch(`/api/messages/group/${group.id}/?page=1`);
         if (res.ok) {
             const data = await res.json();
             const messages = data.results || data;
             const sorted = Array.isArray(messages)
                 ? messages.slice().reverse()
                 : [];
+
+            if (!data.next) roomPagination[roomId].hasMore = false;
+
             sorted.forEach((msg) => {
                 const el = buildMessageEl(msg, msg.status);
                 list.appendChild(el);
@@ -422,6 +450,92 @@ async function openGroupChat(group) {
     }
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// 6b. LOAD OLDER MESSAGES (infinite scroll upwards)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Load the next (older) page of messages for the active room,
+ * prepending them to the top without losing scroll position.
+ */
+async function loadOlderMessages() {
+    if (!activeRoom) return;
+    const state = roomPagination[activeRoom.roomId];
+    if (!state || !state.hasMore || state.isLoading) return;
+
+    state.isLoading = true;
+    const nextPage = state.currentPage + 1;
+    const container = document.getElementById("messages-container");
+    const list = document.getElementById("messages-list");
+
+    // Show loading indicator at top
+    const loader = document.getElementById("scroll-loader");
+    if (loader) loader.classList.remove("hidden");
+
+    try {
+        let url;
+        if (activeRoom.kind === "private") {
+            url = `/api/messages/private/${activeRoom.otherId}/?page=${nextPage}`;
+        } else {
+            url = `/api/messages/group/${activeRoom.groupId}/?page=${nextPage}`;
+        }
+
+        const res = await apiFetch(url);
+        if (res.ok) {
+            const data = await res.json();
+            const messages = data.results || data;
+            const sorted = Array.isArray(messages)
+                ? messages.slice().reverse()
+                : [];
+
+            if (!data.next) state.hasMore = false;
+            state.currentPage = nextPage;
+
+            if (sorted.length > 0) {
+                // Save current scroll height to restore position after prepend
+                const prevScrollHeight = container.scrollHeight;
+
+                const fragment = document.createDocumentFragment();
+                sorted.forEach((msg) => {
+                    const el = buildMessageEl(msg, msg.status);
+                    fragment.appendChild(el);
+                });
+                list.prepend(fragment);
+
+                // Restore scroll position so user stays at the same spot
+                container.scrollTop = container.scrollHeight - prevScrollHeight;
+            }
+
+            if (!state.hasMore) {
+                // Show "beginning of conversation" separator
+                const sep = document.getElementById("chat-start-sep");
+                if (sep) sep.classList.remove("hidden");
+            }
+        }
+    } catch (e) {
+        console.error("Load older messages failed:", e);
+    } finally {
+        state.isLoading = false;
+        const loader = document.getElementById("scroll-loader");
+        if (loader) loader.classList.add("hidden");
+    }
+}
+
+/**
+ * Scroll-to-bottom floating button visibility logic.
+ */
+function updateScrollBtnVisibility() {
+    const container = document.getElementById("messages-container");
+    const btn = document.getElementById("btn-scroll-bottom");
+    if (!btn || !container) return;
+    const distFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distFromBottom > 200) {
+        btn.classList.remove("hidden");
+    } else {
+        btn.classList.add("hidden");
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // 7. CONVERSATIONS & SEARCH
@@ -763,6 +877,23 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // ── Core Event Listeners ──────────────────────────────────────
     document.getElementById("btn-logout").addEventListener("click", logout);
+
+    // ── Infinite Scroll & Scroll-to-Bottom ────────────────────────
+    const messagesContainer = document.getElementById("messages-container");
+    messagesContainer.addEventListener("scroll", () => {
+        // Trigger load when user scrolls near the top (within 80px)
+        if (messagesContainer.scrollTop < 80) {
+            loadOlderMessages();
+        }
+        updateScrollBtnVisibility();
+    });
+
+    const btnScrollBottom = document.getElementById("btn-scroll-bottom");
+    if (btnScrollBottom) {
+        btnScrollBottom.addEventListener("click", () => {
+            messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: "smooth" });
+        });
+    }
 
     // Attachment
     document.getElementById("btn-attach").addEventListener("click", () => {

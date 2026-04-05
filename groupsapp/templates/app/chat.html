@@ -75,12 +75,34 @@
         </div>
 
         <!-- Messages Area (Background with pattern) -->
-        <div class="flex-1 overflow-y-auto px-[5%] py-4 custom-scrollbar relative bg-[#0b141a]" id="messages-container" style="background-image: url('https://web.whatsapp.com/img/bg-chat-tile-dark_a4be512e7195b6b733d9110b408f075d.png'); background-size: 400px; opacity: 0.9;">
+        <div class="flex-1 overflow-y-auto px-[5%] py-4 custom-scrollbar bg-[#0b141a]" id="messages-container">
+
+            <!-- Loader: shown while fetching older messages -->
+            <div id="scroll-loader" class="hidden flex justify-center py-3">
+                <div class="flex items-center gap-2 bg-wa-panel text-[#8696a0] text-xs px-4 py-1.5 rounded-full shadow">
+                    <span class="scroll-spinner"></span>
+                    Loading older messages…
+                </div>
+            </div>
+
+            <!-- Beginning of conversation separator -->
+            <div id="chat-start-sep" class="hidden flex items-center gap-3 my-3 px-2">
+                <div class="flex-1 h-px bg-wa-border"></div>
+                <span class="text-[11px] text-[#8696a0] whitespace-nowrap">Beginning of conversation</span>
+                <div class="flex-1 h-px bg-wa-border"></div>
+            </div>
+
             <!-- Dynamically populated -->
-            <div id="messages-list" class="flex flex-col gap-2 justify-end min-h-full"></div>
+            <div id="messages-list" class="flex flex-col gap-2"></div>
             <!-- Typing indicator -->
             <div id="typing-indicator" class="hidden text-xs italic text-[#8696a0] mt-2 bg-wa-panel rounded-lg w-max px-3 py-1 self-start">Someone is typing...</div>
         </div>
+
+        <!-- Floating scroll-to-bottom button -->
+        <button id="btn-scroll-bottom"
+            class="hidden absolute bottom-20 right-6 z-30 w-10 h-10 rounded-full bg-wa-panel border border-wa-border shadow-lg flex items-center justify-center text-[#8696a0] hover:text-wa-light hover:bg-[#2a3942] transition-all">
+            <span class="material-symbols-outlined text-xl">keyboard_arrow_down</span>
+        </button>
 
         <!-- Input Area -->
         <div class="min-h-[62px] bg-wa-panel flex items-center px-4 py-3 gap-3 shrink-0">
