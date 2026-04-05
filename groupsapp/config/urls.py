@@ -19,5 +19,6 @@ urlpatterns = [
     path("api/files/", include("apps.files.urls")),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Media files are served by Django/Daphne directly.
+# In Sprint 2, Nginx will handle this instead.
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
