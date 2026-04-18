@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package groupsapp.messaging;
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+
+service MessagingService {
+  rpc Healthcheck(groupsapp.common.HealthcheckRequest) returns (groupsapp.common.HealthcheckResponse);
+  rpc PushDirectMessage(PushDirectMessageRequest) returns (groupsapp.common.Empty);
+  rpc GetMessageHistory(GetMessageHistoryRequest) returns (MessageHistoryResponse);
+  rpc ListConversations(ListConversationsRequest) returns (ConversationsResponse);
+}
+
+message Message {
+  string id = 1;
+  string sender_id = 2;
+  string type = 3;
+  string group_id = 4;
+  string channel_id = 5;
+  string receiver_id = 6;
+  string content = 7;
+  string message_type = 8;
+  string file_url = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message PushDirectMessageRequest {
+  string user_id = 1;
+  string payload_json = 2;
+}
+
+message GetMessageHistoryRequest {
+  string group_id = 1;
+  string channel_id = 2;
+  string private_with_user_id = 3;
+  string requesting_user_id = 4;
+  string cursor = 5;
+  int32 limit = 6;
+}
+
+message MessageHistoryResponse {
+  repeated Message messages = 1;
+  string next_cursor = 2;
+}
+
+message ListConversationsRequest { string user_id = 1; }
+
+message ConversationSummary {
+  string type = 1;
+  string conversation_id = 2;
+  string display_name = 3;
+  string last_message_preview = 4;
+  google.protobuf.Timestamp last_message_at = 5;
+}
+
+message ConversationsResponse { repeated ConversationSummary conversations = 1; }
