@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package groupsapp.groups;
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+
+service GroupsService {
+  rpc Healthcheck(groupsapp.common.HealthcheckRequest) returns (groupsapp.common.HealthcheckResponse);
+  rpc CreateGroup(CreateGroupRequest) returns (Group);
+  rpc GetGroup(GetGroupRequest) returns (Group);
+  rpc UpdateGroup(UpdateGroupRequest) returns (Group);
+  rpc DeleteGroup(DeleteGroupRequest) returns (groupsapp.common.Empty);
+  rpc JoinGroup(MembershipRequest) returns (groupsapp.common.Empty);
+  rpc LeaveGroup(MembershipRequest) returns (groupsapp.common.Empty);
+  rpc ListMembers(GetGroupRequest) returns (MembersList);
+  rpc AddMember(MembershipRequest) returns (groupsapp.common.Empty);
+  rpc RemoveMember(MembershipRequest) returns (groupsapp.common.Empty);
+  rpc ChangeRole(ChangeRoleRequest) returns (groupsapp.common.Empty);
+  rpc ListChannels(GetGroupRequest) returns (ChannelsList);
+  rpc CreateChannel(CreateChannelRequest) returns (Channel);
+  rpc GetChannel(GetChannelRequest) returns (ChannelWithGroup);
+  rpc VerifyMembership(MembershipRequest) returns (MembershipInfo);
+  rpc ListUserGroups(ListUserGroupsRequest) returns (UserGroupsResponse);
+}
+
+message Group {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string owner_id = 4;
+  string subscription_type = 5;
+  string avatar_url = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message CreateGroupRequest {
+  string owner_id = 1;
+  string name = 2;
+  string description = 3;
+  string subscription_type = 4;
+}
+
+message GetGroupRequest { string group_id = 1; }
+
+message UpdateGroupRequest {
+  string group_id = 1;
+  string name = 2;
+  string description = 3;
+  string subscription_type = 4;
+}
+
+message DeleteGroupRequest { string group_id = 1; }
+
+message MembershipRequest {
+  string user_id = 1;
+  string group_id = 2;
+}
+
+message Member {
+  string user_id = 1;
+  string role = 2;
+  google.protobuf.Timestamp joined_at = 3;
+}
+
+message MembersList { repeated Member members = 1; }
+
+message ChangeRoleRequest {
+  string user_id = 1;
+  string group_id = 2;
+  string role = 3;
+}
+
+message Channel {
+  string id = 1;
+  string group_id = 2;
+  string name = 3;
+  string description = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message CreateChannelRequest {
+  string group_id = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message GetChannelRequest { string channel_id = 1; }
+
+message ChannelWithGroup {
+  Channel channel = 1;
+  string group_id = 2;
+}
+
+message ChannelsList { repeated Channel channels = 1; }
+
+message MembershipInfo {
+  bool is_member = 1;
+  string role = 2;
+}
+
+message ListUserGroupsRequest { string user_id = 1; }
+
+message GroupSummary {
+  string id = 1;
+  string name = 2;
+  string avatar_url = 3;
+  string role = 4;
+}
+
+message UserGroupsResponse { repeated GroupSummary groups = 1; }
