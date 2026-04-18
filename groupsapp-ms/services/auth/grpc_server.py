@@ -84,13 +84,37 @@ class AuthServicer(auth_pb2_grpc.AuthServiceServicer):
             context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
 
     def ValidateToken(self, request, context):
-        pass  # implemented in Task 5
+        from rest_framework_simplejwt.tokens import AccessToken
+        from rest_framework_simplejwt.exceptions import TokenError
+        try:
+            token = AccessToken(request.token)
+            return auth_pb2.ValidatedIdentity(
+                user_id=str(token.payload.get("user_id")),
+                username=token.payload.get("username", ""),
+                expires_at=int(token.payload.get("exp", 0)),
+            )
+        except TokenError as exc:
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
 
     def GetUserById(self, request, context):
-        pass  # implemented in Task 5
+        from accounts.models import User
+        try:
+            user = User.objects.get(id=request.user_id)
+            return auth_pb2.AuthUser(
+                id=str(user.id), username=user.username, email=user.email
+            )
+        except User.DoesNotExist:
+            context.abort(grpc.StatusCode.NOT_FOUND, "User not found")
 
     def GetUserByUsername(self, request, context):
-        pass  # implemented in Task 5
+        from accounts.models import User
+        try:
+            user = User.objects.get(username=request.username)
+            return auth_pb2.AuthUser(
+                id=str(user.id), username=user.username, email=user.email
+            )
+        except User.DoesNotExist:
+            context.abort(grpc.StatusCode.NOT_FOUND, "User not found")
 
 
 def serve():
