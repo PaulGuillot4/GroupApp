@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package groupsapp.users;
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+
+service UsersService {
+  rpc Healthcheck(groupsapp.common.HealthcheckRequest) returns (groupsapp.common.HealthcheckResponse);
+  rpc GetProfile(GetProfileRequest) returns (UserProfile);
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
+  rpc UpdateLastSeen(UpdateLastSeenRequest) returns (groupsapp.common.Empty);
+}
+
+message GetProfileRequest { string user_id = 1; }
+
+message UserProfile {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+  string avatar_url = 4;
+  string bio = 5;
+  google.protobuf.Timestamp last_seen = 6;
+}
+
+message SearchUsersRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message UserSummary {
+  string user_id = 1;
+  string username = 2;
+  string avatar_url = 3;
+}
+
+message SearchUsersResponse {
+  repeated UserSummary users = 1;
+}
+
+message UpdateLastSeenRequest {
+  string user_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
