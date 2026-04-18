@@ -61,10 +61,27 @@ class AuthServicer(auth_pb2_grpc.AuthServiceServicer):
         return _make_auth_response(user)
 
     def Refresh(self, request, context):
-        pass  # implemented in Task 4
+        from rest_framework_simplejwt.tokens import RefreshToken as BaseRefresh
+        from rest_framework_simplejwt.exceptions import TokenError
+        from accounts.models import User
+        try:
+            old = BaseRefresh(request.refresh_token)
+            user_id = str(old.payload.get("user_id"))
+            user = User.objects.get(id=user_id)
+            old.blacklist()
+            return _make_auth_response(user)
+        except (TokenError, User.DoesNotExist) as exc:
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
 
     def Logout(self, request, context):
-        pass  # implemented in Task 4
+        from rest_framework_simplejwt.tokens import RefreshToken as BaseRefresh
+        from rest_framework_simplejwt.exceptions import TokenError
+        try:
+            token = BaseRefresh(request.refresh_token)
+            token.blacklist()
+            return common_pb2.Empty()
+        except TokenError as exc:
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, str(exc))
 
     def ValidateToken(self, request, context):
         pass  # implemented in Task 5
