@@ -21,6 +21,8 @@ env/
 # Environment
 .env
 CONTEXT.MD
+SPRINT_1.md
+
 
 # Django
 staticfiles/
@@ -34,3 +36,6 @@ desktop.ini
 
 # Docker
 *.log
+
+# Superpowers brainstorming sessions
+.superpowers/
