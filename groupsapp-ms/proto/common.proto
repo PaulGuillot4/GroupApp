@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package groupsapp.common;
+
+import "google/protobuf/timestamp.proto";
+
+message Empty {}
+
+message HealthcheckResponse {
+  string service = 1;
+  string status = 2;
+  google.protobuf.Timestamp checked_at = 3;
+}
+
+message HealthcheckRequest {}
