@@ -2,8 +2,9 @@ Django==4.2.*
 djangorestframework==3.14.*
 djangorestframework-simplejwt==5.*
 psycopg2-binary==2.9.*
-grpcio==1.63.*
-grpcio-tools==1.63.*
-protobuf==5.27.*
+grpcio>=1.63
+grpcio-tools>=1.63
+protobuf>=5.27
 python-dotenv==1.*
 pytest==8.*
+pytest-django==4.*
