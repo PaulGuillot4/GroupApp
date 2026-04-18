@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package groupsapp.files;
+
+import "common.proto";
+import "google/protobuf/timestamp.proto";
+
+service FilesService {
+  rpc Healthcheck(groupsapp.common.HealthcheckRequest) returns (groupsapp.common.HealthcheckResponse);
+  rpc GetFileMetadata(GetFileMetadataRequest) returns (FileMetadata);
+}
+
+message GetFileMetadataRequest { string file_id = 1; }
+
+message FileMetadata {
+  string id = 1;
+  string owner_id = 2;
+  string url = 3;
+  string mime_type = 4;
+  int64 size = 5;
+  google.protobuf.Timestamp uploaded_at = 6;
+}
