@@ -26,7 +26,7 @@ services:
     ports:
       - "2181:2181"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,16 +41,148 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     ports:
       - "9092:9092"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
       interval: 15s
       timeout: 10s
       retries: 5
 
+  auth:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    container_name: gms_auth
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-groupsapp_ms}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+    ports:
+      - "50051:50051"
+    restart: unless-stopped
+
+  users:
+    build:
+      context: .
+      dockerfile: services/users/Dockerfile
+    container_name: gms_users
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-groupsapp_ms}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "50052:50052"
+    restart: unless-stopped
+
+  groups:
+    build:
+      context: .
+      dockerfile: services/groups/Dockerfile
+    container_name: gms_groups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-groupsapp_ms}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "50053:50053"
+    restart: unless-stopped
+
+  messaging:
+    build:
+      context: .
+      dockerfile: services/messaging/Dockerfile
+    container_name: gms_messaging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-groupsapp_ms}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      KAFKA_BROKER: kafka:9092
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+    ports:
+      - "50054:50054"
+      - "8001:8001"
+    restart: unless-stopped
+
+  files:
+    build:
+      context: .
+      dockerfile: services/files/Dockerfile
+    container_name: gms_files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-groupsapp_ms}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - gms_files_data:/app/uploads
+    ports:
+      - "50055:50055"
+      - "8002:8002"
+    restart: unless-stopped
+
+  notifications:
+    build:
+      context: .
+      dockerfile: services/notifications/Dockerfile
+    container_name: gms_notifications
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER: kafka:9092
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: gms_gateway
+    depends_on:
+      - auth
+      - users
+      - groups
+      - messaging
+      - files
+    environment:
+      AUTH_GRPC: auth:50051
+      USERS_GRPC: users:50052
+      GROUPS_GRPC: groups:50053
+      MESSAGING_GRPC: messaging:50054
+      FILES_GRPC: files:50055
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
 volumes:
   gms_postgres_data:
+  gms_files_data:
