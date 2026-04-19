@@ -79,7 +79,27 @@ class UsersServicer(users_pb2_grpc.UsersServiceServicer):
         return common_pb2.Empty()
 
     def SearchUsers(self, request, context):
-        return users_pb2.SearchUsersResponse()
+        limit = request.limit if request.limit > 0 else 20
+        with self._engine.connect() as conn:
+            rows = conn.execute(text("""
+                SELECT au.id::text AS user_id,
+                       au.username,
+                       COALESCE(up.avatar_url, '') AS avatar_url
+                FROM auth.users au
+                LEFT JOIN user_profiles up ON au.id::text = up.user_id
+                WHERE au.username ILIKE :q
+                LIMIT :lim
+            """), {"q": f"%{request.query}%", "lim": limit}).fetchall()
+        return users_pb2.SearchUsersResponse(
+            users=[
+                users_pb2.UserSummary(
+                    user_id=r.user_id,
+                    username=r.username,
+                    avatar_url=r.avatar_url,
+                )
+                for r in rows
+            ]
+        )
 
 
 def serve():
