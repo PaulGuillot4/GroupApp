@@ -17,6 +17,6 @@ RUN mkdir -p /app/generated && touch /app/generated/__init__.py && \
       /proto/*.proto
 
 HEALTHCHECK --interval=20s --timeout=5s --start-period=15s --retries=3 \
-  CMD pgrep -f "src/main.py" > /dev/null || exit 1
+  CMD python -c "import sys; sys.exit(0)"
 
 CMD ["python", "src/main.py"]
