@@ -124,6 +124,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       KAFKA_BROKER: kafka:9092
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-me}
+      AUTH_GRPC: auth:50051
+      GROUPS_GRPC: groups:50053
+      USERS_GRPC: users:50052
     ports:
       - "50054:50054"
       - "8001:8001"
@@ -160,6 +163,8 @@ services:
         condition: service_healthy
     environment:
       KAFKA_BROKER: kafka:9092
+      MESSAGING_GRPC: messaging:50054
+      USERS_GRPC: users:50052
     restart: unless-stopped
 
   gateway:
