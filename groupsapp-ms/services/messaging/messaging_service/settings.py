@@ -10,6 +10,7 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "channels",
+    "chat",
 ]
 
 ASGI_APPLICATION = "messaging_service.asgi.application"

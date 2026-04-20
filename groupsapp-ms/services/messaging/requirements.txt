@@ -7,3 +7,5 @@ grpcio==1.63.*
 grpcio-tools==1.63.*
 protobuf==5.27.*
 pytest==8.*
+pytest-django==4.*
+pytest-asyncio==0.23.*
