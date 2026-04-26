@@ -1,122 +1,223 @@
 # GroupsApp — Microservices Edition
 
-Reescritura de GroupsApp como arquitectura de microservicios con Kafka, REST y gRPC.
+Sistema de chat/grupos implementado con arquitectura de microservicios, mensajería en tiempo real y eventos con Kafka.
 
-Ver `../groupsapp/docs/superpowers/specs/2026-04-17-microservices-migration-design.md` para el diseño completo.
+Este repositorio (`groupsapp-ms`) está orientado a **demo y validación end-to-end** de:
+- autenticación,
+- gestión de usuarios y grupos,
+- mensajería WebSocket,
+- notificaciones asíncronas.
 
-## Quick start
+## 1) Arquitectura del sistema
+
+### Microservicios
+
+| Servicio | Rol | gRPC | HTTP/WS |
+|---|---|---:|---:|
+| `gateway` | Punto de entrada único (API pública) | — | `:8000` |
+| `auth` | Registro/login/refresh/validación token | `:50051` | — |
+| `users` | Perfil, búsqueda, `last_seen` | `:50052` | `:8003` |
+| `groups` | CRUD grupos, miembros, canales | `:50053` | — |
+| `messaging` | Persistencia + WS chat | `:50054` | WS `:8001` |
+| `files` | Upload y metadatos | `:50055` | `:8002` |
+| `notifications` | Consumer Kafka y push de eventos | — | — |
+
+### Diagrama (Mermaid)
+
+```mermaid
+flowchart LR
+    Client[Frontend / Postman / cURL] -->|HTTP| Gateway
+    Client -->|WS /ws/chat| Messaging
+
+    Gateway -->|gRPC| Auth
+    Gateway -->|gRPC| Users
+    Gateway -->|gRPC| Groups
+    Gateway -->|gRPC| Messaging
+    Gateway -->|gRPC| Files
+    Gateway -->|HTTP /profile| Users
+    Gateway -->|HTTP /upload| Files
+
+    Messaging -->|messages.sent| Kafka[(Kafka)]
+    Messaging -->|messages.read| Kafka
+    Messaging -->|presence.changed| Kafka
+
+    Kafka -->|consume topics| Notifications
+    Notifications -->|gRPC PushDirectMessage| Messaging
+    Notifications -->|gRPC UpdateLastSeen| Users
+
+    Auth --> Postgres[(PostgreSQL)]
+    Users --> Postgres
+    Groups --> Postgres
+    Messaging --> Postgres
+    Files --> Postgres
+```
+
+## 2) Stack tecnológico
+
+- Python 3.11
+- FastAPI (Gateway + servicios REST)
+- Django + Channels (Messaging/Auth)
+- gRPC + Protocol Buffers
+- Apache Kafka + Zookeeper
+- PostgreSQL
+- Docker Compose
+- WebSockets
+
+## 3) Variables de entorno
+
+Archivo base: `.env.example`
+
+Variables principales:
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`
+- `KAFKA_BROKER`
+- `JWT_SECRET_KEY`, `JWT_ACCESS_MINUTES`, `JWT_REFRESH_DAYS`
+- `LOG_LEVEL`
+
+### Inicio rápido
+
+> En Linux/macOS:
 
 ```bash
 cp .env.example .env
-./scripts/compile_proto.sh
-docker compose up -d
+docker compose up -d --build
 python scripts/smoke_test.py
 python scripts/e2e_demo.py
 ```
 
-## Servicios
+> En Windows PowerShell:
 
-| # | Servicio | Puerto gRPC | Puerto HTTP |
-|---|----------|-------------|-------------|
-| 1 | gateway | — | 8000 |
-| 2 | auth | 50051 | — |
-| 3 | users | 50052 | 8003 (profile REST) |
-| 4 | groups | 50053 | — |
-| 5 | messaging | 50054 | 8001 (WS) |
-| 6 | files | 50055 | 8002 (upload) |
-| 7 | notifications | — | — (Kafka consumer) |
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --build
+python scripts/smoke_test.py
+python scripts/e2e_demo.py
+```
 
-## Planes completados
+## 4) Flujo general del sistema
 
-### Plan 1 — Foundation ✅
+1. Cliente llama `Gateway` para auth/users/groups/files.
+2. `Gateway` valida JWT vía `Auth.ValidateToken`.
+3. Mensajes en tiempo real via `Messaging` (WS `:8001`).
+4. `Messaging` publica eventos Kafka:
+   - `messages.sent`
+   - `messages.read`
+   - `presence.changed`
+5. `Notifications` consume eventos:
+   - hace push a usuarios por gRPC en `Messaging`,
+   - actualiza `last_seen` en `Users`.
 
-- [x] Monorepo con 7 servicios
-- [x] Proto contracts congelados en `proto/` (auth, users, groups, messaging, files, common)
-- [x] PostgreSQL con 6 schemas (auth, users, groups, messaging, files, notifications)
-- [x] Kafka con 3 topics (messages.sent, messages.read, presence.changed)
-- [x] 7 servicios respondiendo (gRPC Healthcheck o HTTP /health)
-- [x] `scripts/smoke_test.py` pasa
+## 5) Pruebas y estabilidad E2E
 
-### Plan 2 — Auth + Gateway ✅
+### Smoke test (infra + servicios)
 
-- [x] Register/login/refresh/logout end-to-end via Gateway
-- [x] JWT validation en Gateway (Bearer token → gRPC Auth.ValidateToken)
-- [x] Gateway CRUD de grupos, mensajes, archivos, usuarios
+```bash
+python scripts/smoke_test.py
+```
 
-### Plan 3 — Users + Groups ✅
+Valida:
+- health gRPC/HTTP,
+- disponibilidad del gateway,
+- existencia de topics Kafka esperados.
 
-- [x] CRUD grupos completo via Gateway → Groups gRPC
-- [x] Membership (join/leave/add/remove/change-role/verify)
-- [x] Canales dentro de grupos
-- [x] Users search y perfil via Gateway → Users gRPC
+### E2E completo
 
-### Plan 4 — Kafka end-to-end ✅
+```bash
+python scripts/e2e_demo.py
+```
 
-- [x] Messaging publica `messages.sent` a Kafka tras cada mensaje WS
-- [x] Messaging publica `messages.read` a Kafka al marcar como leído
-- [x] Messaging publica `presence.changed` al conectar/desconectar WS
-- [x] Notifications consume `messages.sent` → push a receptor (privados) / push a todos los miembros (grupos)
-- [x] Notifications consume `presence.changed` → actualiza `last_seen` via Users.UpdateLastSeen
-- [x] PushDirectMessage gRPC → envía via channel layer al WS del usuario
+Valida flujo integrado:
+- register/login,
+- grupos y membership,
+- WS (mensaje grupal y privado),
+- notificaciones y read receipts,
+- historial, perfil, archivos, búsqueda.
 
-### Plan 5 — Users + Files + Gateway completeness ✅
+### Estabilidad (5 corridas consecutivas)
 
-- [x] Users REST endpoint `PATCH /profile` para actualizar avatar y bio (proto congelado)
-- [x] Users dual-server (gRPC :50052 + REST :8003)
-- [x] Gateway `GET /api/users/me/profile` y `PATCH /api/users/me/profile`
-- [x] Gateway `GET /api/users/{user_id}/profile`
-- [x] Gateway CORS middleware habilitado
-- [x] Files upload funcional via Gateway → Files REST
-- [x] Files metadata via Gateway → Files gRPC
-- [x] `scripts/e2e_demo.py` — script de demo end-to-end
+```bash
+python scripts/e2e_stability_runner.py --runs 5
+```
 
-### Contratos gRPC (congelados)
-Cualquier cambio a `proto/*.proto` requiere re-compilación y coordinación de equipo.
+## 6) Endpoints principales (Gateway)
 
-## API Gateway Endpoints
+Base URL: `http://localhost:8000`
 
 ### Auth
-- `POST /api/auth/register` — Register
-- `POST /api/auth/login` — Login
-- `POST /api/auth/refresh` — Refresh JWT
-- `POST /api/auth/logout` — Logout
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/refresh`
+- `POST /api/auth/logout`
 
 ### Users
-- `GET /api/users/me` — Get current user (basic info)
-- `GET /api/users/me/profile` — Get full profile
-- `PATCH /api/users/me/profile` — Update profile (avatar, bio)
-- `GET /api/users/{user_id}/profile` — Get any user profile
-- `GET /api/users/search?q=...` — Search users
+- `GET /api/users/me`
+- `GET /api/users/me/profile`
+- `PATCH /api/users/me/profile`
+- `GET /api/users/{user_id}/profile`
+- `GET /api/users/search?q=...`
 
 ### Groups
-- `GET /api/groups/me` — List my groups
-- `POST /api/groups` — Create group
-- `GET /api/groups/{id}` — Get group
-- `PATCH /api/groups/{id}` — Update group
-- `DELETE /api/groups/{id}` — Delete group
-- `POST /api/groups/{id}/join` — Join
-- `POST /api/groups/{id}/leave` — Leave
-- `GET /api/groups/{id}/members` — List members
-- `POST /api/groups/{id}/members?user_id=...` — Add member
-- `DELETE /api/groups/{id}/members/{uid}` — Remove member
-- `PATCH /api/groups/{id}/members/{uid}/role` — Change role
-- `GET /api/groups/{id}/channels` — List channels
-- `POST /api/groups/{id}/channels` — Create channel
-- `GET /api/groups/{id}/membership` — Verify membership
+- `GET /api/groups/me`
+- `POST /api/groups`
+- `GET /api/groups/{id}`
+- `PATCH /api/groups/{id}`
+- `DELETE /api/groups/{id}`
+- `POST /api/groups/{id}/join`
+- `POST /api/groups/{id}/leave`
+- `GET /api/groups/{id}/members`
+- `POST /api/groups/{id}/members?user_id=...`
+- `DELETE /api/groups/{id}/members/{uid}`
+- `PATCH /api/groups/{id}/members/{uid}/role`
+- `GET /api/groups/{id}/channels`
+- `POST /api/groups/{id}/channels`
+- `GET /api/groups/{id}/membership`
 
 ### Messages
-- `GET /api/messages/history?group_id=...&limit=50` — Message history
-- `GET /api/messages/conversations` — List conversations
+- `GET /api/messages/history?group_id=...&limit=50`
+- `GET /api/messages/conversations`
 
 ### Files
-- `POST /api/files/upload` — Upload file (multipart)
-- `GET /api/files/{id}` — Get file metadata
+- `POST /api/files/upload`
+- `GET /api/files/{id}`
 
 ### WebSocket
-- `ws://host:8001/ws/chat/?token=JWT` — Real-time messaging
-  - Send: `{"type": "message", "content": "...", "receiver_id": "...", "message_type": "text"}`
-  - Send: `{"type": "message", "content": "...", "group_id": "...", "message_type": "text"}`
-  - Send: `{"type": "read", "message_id": "..."}`
-  - Receive: `{"type": "message", "message_id": "...", "sender_id": "...", "content": "..."}`
-  - Receive: `{"event": "new_message", ...}` (push notification)
-  - Receive: `{"event": "message_read", ...}` (read receipt)
+- `ws://localhost:8001/ws/chat/?token=JWT`
+
+Mensajes soportados:
+- send private:
+  `{"type":"message","content":"...","receiver_id":"...","message_type":"text"}`
+- send group:
+  `{"type":"message","content":"...","group_id":"...","message_type":"text"}`
+- read receipt:
+  `{"type":"read","message_id":"..."}`
+
+## 7) Demo rehearsal
+
+Rehearsal recomendado (sin scripts adicionales):
+
+1. Levantar servicios:
+   - `docker compose up -d --build`
+2. Validar salud:
+   - `python scripts/smoke_test.py`
+3. Ejecutar E2E completo:
+   - `python scripts/e2e_demo.py`
+4. Validar estabilidad (5 corridas seguidas):
+   - `python scripts/e2e_stability_runner.py --runs 5`
+
+## 8) Errores comunes y soluciones
+
+- `failed to connect to the docker API ... dockerDesktopLinuxEngine`
+  - Docker Desktop no está iniciado. Inícialo y reintenta `docker compose up -d --build`.
+
+- `SKIP WebSocket tests (websockets package not installed)`
+  - Instala dependencia local: `pip install websockets`.
+
+- `Messaging service unavailable` o `Auth/Users/Groups unavailable`
+  - Revisa estado: `docker compose ps`
+  - Logs: `docker compose logs <service>`
+  - Espera readiness y vuelve a correr `python scripts/smoke_test.py`.
+
+- Fallo al subir archivos (`Upload failed`)
+  - Verifica `files` y `gateway` en `docker compose ps` y sus logs.
+
+- Topics faltantes en Kafka en `smoke_test.py`
+  - Reinicia stack: `docker compose down -v` y luego `docker compose up -d --build`.
