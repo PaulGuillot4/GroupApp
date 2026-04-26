@@ -73,6 +73,34 @@ def api_upload(path: str, filepath_content: bytes, filename: str, token: str):
         return json.loads(resp.read())
 
 
+def wait_for_gateway_ready(max_wait: float = 60.0):
+    """Wait until gateway /health responds OK."""
+    deadline = time.time() + max_wait
+    last_err = None
+    while time.time() < deadline:
+        try:
+            health = api("GET", "/health")
+            if health == {"service": "gateway", "status": "OK"}:
+                print("  ✓ Gateway healthcheck OK")
+                return
+        except Exception as exc:
+            last_err = exc
+        time.sleep(1.5)
+    raise RuntimeError(f"Gateway not ready after {max_wait}s: {last_err}")
+
+
+def wait_until(description: str, fn, timeout: float = 12.0, interval: float = 0.6):
+    """Poll until predicate returns truthy, otherwise raise on timeout."""
+    deadline = time.time() + timeout
+    last_value = None
+    while time.time() < deadline:
+        last_value = fn()
+        if last_value:
+            return last_value
+        time.sleep(interval)
+    raise RuntimeError(f"Timeout waiting for {description}. Last value: {last_value}")
+
+
 # ─── WebSocket helpers ──────────────────────────────────────────────────────
 
 async def ws_connect(token: str):
@@ -99,6 +127,87 @@ async def ws_recv(ws, timeout=5.0):
         return None
 
 
+async def ws_recv_until(ws, predicate, timeout=10.0):
+    """Receive messages until predicate(msg) is true or timeout is reached."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        remaining = max(0.1, deadline - time.time())
+        msg = await ws_recv(ws, timeout=remaining)
+        if msg is None:
+            continue
+        if predicate(msg):
+            return msg
+    return None
+
+
+async def run_ws_flow(token_a: str, token_b: str, group_id: str, user_b_id: str):
+    """Validate WS messaging + notifications + read receipts end-to-end."""
+    ws_a = await ws_connect(token_a)
+    ws_b = await ws_connect(token_b)
+    if ws_a is None or ws_b is None:
+        raise RuntimeError("websockets package is required for WS E2E validation")
+
+    try:
+        group_content = "E2E_GROUP_MESSAGE"
+        await ws_send(ws_a, {
+            "type": "message",
+            "content": group_content,
+            "group_id": group_id,
+            "message_type": "text",
+        })
+
+        group_msg = await ws_recv_until(
+            ws_b,
+            lambda m: m.get("type") == "message" and m.get("content") == group_content,
+            timeout=10.0,
+        )
+        if not group_msg:
+            raise RuntimeError("User B did not receive group message via WS")
+
+        private_content = "E2E_PRIVATE_MESSAGE"
+        await ws_send(ws_a, {
+            "type": "message",
+            "content": private_content,
+            "receiver_id": user_b_id,
+            "message_type": "text",
+        })
+
+        private_msg = await ws_recv_until(
+            ws_b,
+            lambda m: m.get("type") == "message" and m.get("content") == private_content,
+            timeout=10.0,
+        )
+        if not private_msg:
+            raise RuntimeError("User B did not receive private message via WS")
+
+        # Notifications service should push event=new_message to receiver.
+        notif = await ws_recv_until(
+            ws_b,
+            lambda m: m.get("event") == "new_message",
+            timeout=8.0,
+        )
+        if not notif:
+            raise RuntimeError("Notification event new_message not received by user B")
+
+        message_id = private_msg.get("message_id", "")
+        if not message_id:
+            raise RuntimeError("Private message_id missing in WS payload")
+
+        await ws_send(ws_b, {"type": "read", "message_id": message_id})
+        read_receipt = await ws_recv_until(
+            ws_a,
+            lambda m: m.get("event") == "message_read" and m.get("message_id") == message_id,
+            timeout=10.0,
+        )
+        if not read_receipt:
+            raise RuntimeError("User A did not receive message_read receipt")
+
+        return {"private_message_id": message_id}
+    finally:
+        await ws_a.close()
+        await ws_b.close()
+
+
 # ─── Test steps ─────────────────────────────────────────────────────────────
 
 def step(num: int, desc: str):
@@ -110,6 +219,7 @@ def step(num: int, desc: str):
 def run_demo():
     results = {"passed": 0, "failed": 0, "skipped": 0}
     ts = int(time.time())
+    wait_for_gateway_ready()
 
     # ── Step 1: Register two users ─────────────────────────────────
     step(1, "Register two users")
@@ -174,15 +284,44 @@ def run_demo():
     print(f"  ✓ Membership verified: role={membership['role']}")
     results["passed"] += 1
 
-    # ── Step 5: Verify message history via REST ────────────────────
-    step(5, "Verify message history via Gateway REST")
+    # ── Step 5: Baseline message history via REST ──────────────────
+    step(5, "Baseline message history via Gateway REST")
     history = api("GET", f"/api/messages/history?group_id={group_id}&limit=10", token=token_a)
     initial_count = len(history.get("messages", []))
     print(f"  ✓ Message history retrieved ({initial_count} messages initially)")
     results["passed"] += 1
 
-    # ── Step 6: User A uploads a file ──────────────────────────────
-    step(6, "User A uploads a file via Gateway")
+    # ── Step 6: WS + notifications + read receipts ─────────────────
+    step(6, "Validate WebSocket messaging + notifications")
+    try:
+        ws_result = asyncio.run(run_ws_flow(token_a, token_b, group_id, user_b_id))
+        print(f"  ✓ WS flow validated (private message id={ws_result['private_message_id']})")
+        results["passed"] += 1
+    except Exception as exc:
+        print(f"  ✗ WS flow failed: {exc}", file=sys.stderr)
+        results["failed"] += 1
+
+    # ── Step 7: Verify message history eventually reflects WS send ─
+    step(7, "Verify message history after WS flow")
+    try:
+        updated_history = wait_until(
+            "group message persistence",
+            lambda: api("GET", f"/api/messages/history?group_id={group_id}&limit=20", token=token_a),
+            timeout=12.0,
+            interval=0.8,
+        )
+        updated_count = len(updated_history.get("messages", []))
+        assert updated_count >= initial_count + 1, (
+            f"Expected at least one new group message. initial={initial_count}, updated={updated_count}"
+        )
+        print(f"  ✓ Message history updated ({updated_count} messages)")
+        results["passed"] += 1
+    except Exception as exc:
+        print(f"  ✗ Message history update check failed: {exc}", file=sys.stderr)
+        results["failed"] += 1
+
+    # ── Step 8: User A uploads a file ──────────────────────────────
+    step(8, "User A uploads a file via Gateway")
     test_content = b"Hello from E2E test! This is a test file."
     try:
         upload_resp = api_upload("/api/files/upload", test_content, "test_file.txt", token_a)
@@ -199,8 +338,8 @@ def run_demo():
         print(f"  ✗ File upload failed: {exc}", file=sys.stderr)
         results["failed"] += 1
 
-    # ── Step 7: Search users ───────────────────────────────────────
-    step(7, "Search users via Gateway")
+    # ── Step 9: Search users ────────────────────────────────────────
+    step(9, "Search users via Gateway")
     search_results = api("GET", f"/api/users/search?q={user_a_name[:5]}", token=token_b)
     found = any(u["username"] == user_a_name for u in search_results)
     if found:
@@ -210,8 +349,8 @@ def run_demo():
         print(f"  ✗ {user_a_name} not found in search results: {search_results}", file=sys.stderr)
         results["failed"] += 1
 
-    # ── Step 8: Get user profile ───────────────────────────────────
-    step(8, "Get user profile via Gateway")
+    # ── Step 10: Get user profile ───────────────────────────────────
+    step(10, "Get user profile via Gateway")
     try:
         profile = api("GET", f"/api/users/{user_a_id}/profile", token=token_b)
         assert profile["user_id"] == user_a_id
@@ -221,8 +360,8 @@ def run_demo():
         print(f"  ✗ Get profile failed: {exc}", file=sys.stderr)
         results["failed"] += 1
 
-    # ── Step 9: Update user profile ────────────────────────────────
-    step(9, "Update user profile via Gateway")
+    # ── Step 11: Update user profile ────────────────────────────────
+    step(11, "Update user profile via Gateway")
     try:
         updated = api("PATCH", "/api/users/me/profile", {
             "bio": "I am Alice, testing E2E!",
@@ -236,8 +375,8 @@ def run_demo():
         print(f"  ✗ Update profile failed: {exc}", file=sys.stderr)
         results["failed"] += 1
 
-    # ── Step 10: List conversations ────────────────────────────────
-    step(10, "List conversations via Gateway")
+    # ── Step 12: List conversations ────────────────────────────────
+    step(12, "List conversations via Gateway")
     try:
         convos = api("GET", "/api/messages/conversations", token=token_a)
         print(f"  ✓ Conversations listed: {len(convos)} conversations")
@@ -246,8 +385,8 @@ def run_demo():
         print(f"  ✗ List conversations failed: {exc}", file=sys.stderr)
         results["failed"] += 1
 
-    # ── Step 11: List my groups ────────────────────────────────────
-    step(11, "List my groups via Gateway")
+    # ── Step 13: List my groups ────────────────────────────────────
+    step(13, "List my groups via Gateway")
     try:
         my_groups = api("GET", "/api/groups/me", token=token_a)
         has_our_group = any(g["id"] == group_id for g in my_groups)
@@ -258,8 +397,8 @@ def run_demo():
         print(f"  ✗ List my groups failed: {exc}", file=sys.stderr)
         results["failed"] += 1
 
-    # ── Step 12: List group members ────────────────────────────────
-    step(12, "List group members via Gateway")
+    # ── Step 14: List group members ────────────────────────────────
+    step(14, "List group members via Gateway")
     try:
         members = api("GET", f"/api/groups/{group_id}/members", token=token_a)
         member_ids = [m["user_id"] for m in members]
