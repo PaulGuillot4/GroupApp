@@ -17,30 +17,90 @@ def get_users_stub():
     return _get()
 
 
+def get_groups_stub():
+    from src.clients import get_groups_stub as _get
+    return _get()
+
+
+def _list_group_members(group_id: str) -> list[str]:
+    """Return list of user_ids that are members of the given group."""
+    from generated import groups_pb2
+    stub = get_groups_stub()
+    try:
+        resp = stub.ListMembers(groups_pb2.GetGroupRequest(group_id=group_id))
+        return [m.user_id for m in resp.members]
+    except Exception as exc:
+        print(f"[notifications] ListMembers failed for {group_id}: {exc}", flush=True)
+        return []
+
+
 async def handle_messages_sent(value: bytes):
     data = json.loads(value)
-    if data.get("type") != "private":
-        return
-    receiver_id = data.get("receiver_id", "")
-    if not receiver_id:
-        return
-    payload = json.dumps({
-        "event": "new_message",
-        "message_id": data.get("message_id"),
-        "sender_id": data.get("sender_id"),
-        "content_preview": data.get("content_preview", ""),
-    })
-    stub = get_messaging_stub()
-    from generated import messaging_pb2
-    stub.PushDirectMessage(
-        messaging_pb2.PushDirectMessageRequest(user_id=receiver_id, payload_json=payload)
-    )
-    print(f"[notifications] pushed to {receiver_id}", flush=True)
+    msg_type = data.get("type", "")
+    sender_id = data.get("sender_id", "")
+
+    if msg_type == "private":
+        # Push notification to the receiver
+        receiver_id = data.get("receiver_id", "")
+        if not receiver_id:
+            return
+        payload = json.dumps({
+            "event": "new_message",
+            "message_id": data.get("message_id"),
+            "sender_id": sender_id,
+            "content_preview": data.get("content_preview", ""),
+            "type": "private",
+        })
+        stub = get_messaging_stub()
+        from generated import messaging_pb2
+        stub.PushDirectMessage(
+            messaging_pb2.PushDirectMessageRequest(user_id=receiver_id, payload_json=payload)
+        )
+        print(f"[notifications] pushed private notification to {receiver_id}", flush=True)
+
+    elif msg_type in ("group", "channel"):
+        # Push notification to all group/channel members except the sender
+        target_id = data.get("group_id") or data.get("channel_id", "")
+        if not target_id:
+            return
+        members = await asyncio.to_thread(_list_group_members, target_id)
+        stub = get_messaging_stub()
+        from generated import messaging_pb2
+        payload_data = {
+            "event": "new_message",
+            "message_id": data.get("message_id"),
+            "sender_id": sender_id,
+            "content_preview": data.get("content_preview", ""),
+            "type": msg_type,
+            "group_id": target_id,
+        }
+        pushed_count = 0
+        for member_id in members:
+            if member_id == sender_id:
+                continue
+            try:
+                stub.PushDirectMessage(
+                    messaging_pb2.PushDirectMessageRequest(
+                        user_id=member_id,
+                        payload_json=json.dumps(payload_data),
+                    )
+                )
+                pushed_count += 1
+            except Exception as exc:
+                print(f"[notifications] push to {member_id} failed: {exc}", flush=True)
+        print(
+            f"[notifications] pushed {msg_type} notification to {pushed_count} members "
+            f"in {target_id}",
+            flush=True,
+        )
 
 
 async def handle_messages_read(value: bytes):
     data = json.loads(value)
-    print(f"[notifications] message read: {data.get('message_id')}", flush=True)
+    print(
+        f"[notifications] message {data.get('message_id')} read by {data.get('user_id')}",
+        flush=True,
+    )
 
 
 async def handle_presence_changed(value: bytes):
@@ -59,7 +119,7 @@ async def handle_presence_changed(value: bytes):
     ts = Timestamp()
     ts.FromDatetime(dt)
     stub.UpdateLastSeen(users_pb2.UpdateLastSeenRequest(user_id=user_id, timestamp=ts))
-    print(f"[notifications] updated last_seen for {user_id}", flush=True)
+    print(f"[notifications] updated last_seen for {user_id} ({data.get('status')})", flush=True)
 
 
 _HANDLERS = {

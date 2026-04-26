@@ -16,7 +16,7 @@ RUN mkdir -p /app/generated && touch /app/generated/__init__.py && \
       --grpc_python_out=/app/generated \
       /proto/*.proto
 
-EXPOSE 50052
+EXPOSE 50052 8003
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import grpc; from generated import users_pb2_grpc, common_pb2; c=grpc.insecure_channel('localhost:50052'); s=users_pb2_grpc.UsersServiceStub(c); s.Healthcheck(common_pb2.HealthcheckRequest(), timeout=2)" || exit 1
 

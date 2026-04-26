@@ -86,6 +86,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
       - "50052:50052"
+      - "8003:8003"
     restart: unless-stopped
 
   groups:
@@ -146,6 +147,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-groupsapp_ms}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      FILES_BASE_URL: http://files:8002
     volumes:
       - gms_files_data:/app/uploads
     ports:
@@ -165,6 +167,7 @@ services:
       KAFKA_BROKER: kafka:9092
       MESSAGING_GRPC: messaging:50054
       USERS_GRPC: users:50052
+      GROUPS_GRPC: groups:50053
     restart: unless-stopped
 
   gateway:
@@ -184,6 +187,8 @@ services:
       GROUPS_GRPC: groups:50053
       MESSAGING_GRPC: messaging:50054
       FILES_GRPC: files:50055
+      USERS_HTTP: http://users:8003
+      FILES_HTTP: http://files:8002
     ports:
       - "8000:8000"
     restart: unless-stopped

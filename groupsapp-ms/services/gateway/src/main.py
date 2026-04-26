@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from .routes.auth import router as auth_router
 from .routes.users import router as users_router
 from .routes.groups import router as groups_router
@@ -6,6 +7,16 @@ from .routes.messages import router as messages_router
 from .routes.files import router as files_router
 
 app = FastAPI(title="GroupsApp Gateway")
+
+# CORS — allow frontend origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # restrict in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(groups_router)

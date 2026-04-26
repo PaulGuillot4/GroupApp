@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime, timezone
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
@@ -56,8 +57,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except Exception:
             pass
 
+        # Publish presence.changed → online
+        await send_message_event("presence.changed", {
+            "user_id": self.user_id,
+            "status": "online",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
     async def disconnect(self, close_code):
         if hasattr(self, "user_id"):
+            # Publish presence.changed → offline
+            await send_message_event("presence.changed", {
+                "user_id": self.user_id,
+                "status": "offline",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
             await self.channel_layer.group_discard(
                 f"user_{self.user_id}", self.channel_name
             )
@@ -67,8 +81,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
             data = json.loads(text_data)
         except ValueError:
             return
-        if data.get("type") == "message":
+        msg_type = data.get("type")
+        if msg_type == "message":
             await self._handle_message(data)
+        elif msg_type == "read":
+            await self._handle_read(data)
 
     async def _handle_message(self, data):
         from chat.models import Message
@@ -78,6 +95,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         channel_id = data.get("channel_id", "")
         receiver_id = data.get("receiver_id", "")
         message_type = data.get("message_type", "text")
+        file_url = data.get("file_url", "")
 
         if group_id:
             msg_type = "group"
@@ -107,6 +125,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             receiver_id=receiver_id,
             content=content,
             message_type=message_type,
+            file_url=file_url,
         )
 
         payload = {
@@ -118,6 +137,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "sender": self.username,
                 "content": content,
                 "message_type": message_type,
+                "file_url": file_url,
                 "created_at": msg.created_at.isoformat(),
             },
         }
@@ -134,6 +154,48 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "receiver_id": receiver_id,
             "content_preview": content[:100],
         })
+
+    async def _handle_read(self, data):
+        """Handle mark-as-read: update DB status and publish messages.read to Kafka."""
+        from chat.models import Message, MessageStatus
+
+        message_id = data.get("message_id", "")
+        if not message_id:
+            return
+
+        # Upsert read status in DB
+        try:
+            await sync_to_async(MessageStatus.objects.update_or_create)(
+                message_id=message_id,
+                user_id=self.user_id,
+                defaults={"status": "read"},
+            )
+        except Exception:
+            pass
+
+        # Publish messages.read to Kafka
+        await send_message_event("messages.read", {
+            "message_id": message_id,
+            "user_id": self.user_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+        # Notify the sender that the message was read
+        try:
+            msg = await sync_to_async(
+                Message.objects.filter(id=message_id).values_list("sender_id", flat=True).first
+            )()
+            if msg and msg != self.user_id:
+                await self.channel_layer.group_send(f"user_{msg}", {
+                    "type": "push_notification",
+                    "payload_json": json.dumps({
+                        "event": "message_read",
+                        "message_id": message_id,
+                        "read_by": self.user_id,
+                    }),
+                })
+        except Exception:
+            pass
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps(event["message"]))

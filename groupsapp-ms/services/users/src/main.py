@@ -1,5 +1,6 @@
 import sys
 import os
+import threading
 from concurrent import futures
 from datetime import timezone
 
@@ -102,7 +103,7 @@ class UsersServicer(users_pb2_grpc.UsersServiceServicer):
         )
 
 
-def serve():
+def serve_grpc():
     engine = _get_engine()
     metadata.create_all(engine)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
@@ -114,4 +115,12 @@ def serve():
 
 
 if __name__ == "__main__":
-    serve()
+    # Start gRPC in a background thread
+    grpc_thread = threading.Thread(target=serve_grpc, daemon=True)
+    grpc_thread.start()
+
+    # Start REST server in the main thread
+    import uvicorn
+    from src.rest import app
+    print("Users REST server starting on :8003", flush=True)
+    uvicorn.run(app, host="0.0.0.0", port=8003)
