@@ -29,6 +29,7 @@ def _msg_to_proto(m):
     msg = messaging_pb2.Message(
         id=str(m.id),
         sender_id=m.sender_id,
+        sender_username=m.sender_username,
         type=m.type,
         group_id=m.group_id,
         channel_id=m.channel_id,
@@ -90,33 +91,79 @@ class MessagingServicer(messaging_pb2_grpc.MessagingServiceServicer):
         uid = request.user_id
         convos = []
 
+        # Groups and channels where user participated
         for row in (
             Message.objects.filter(type__in=["group", "channel"], sender_id=uid)
             .values("type", "group_id", "channel_id")
             .annotate(last_at=Max("created_at"))
+            .order_by("-last_at")
         ):
-            cid = row["group_id"] or row["channel_id"]
-            convos.append(
-                messaging_pb2.ConversationSummary(
-                    type=row["type"], conversation_id=cid, display_name=cid
+            msg_type = row["type"]
+            if msg_type == "group":
+                cid = row["group_id"]
+                last = (
+                    Message.objects.filter(type="group", group_id=cid)
+                    .order_by("-created_at")
+                    .first()
                 )
+            else:  # channel
+                cid = row["channel_id"]
+                last = (
+                    Message.objects.filter(type="channel", channel_id=cid)
+                    .order_by("-created_at")
+                    .first()
+                )
+            preview = ""
+            ts = None
+            if last:
+                preview = last.content[:80] if last.content else "📎 File"
+                ts = _ts(last.created_at)
+            c = messaging_pb2.ConversationSummary(
+                type=msg_type,
+                conversation_id=cid,
+                display_name=cid,
+                last_message_preview=preview,
             )
+            if ts:
+                c.last_message_at.CopyFrom(ts)
+            convos.append(c)
 
-        seen = set()
+        # Private conversations
+        seen: set = set()
         for row in (
             Message.objects.filter(type="private")
             .filter(Q(sender_id=uid) | Q(receiver_id=uid))
             .values("sender_id", "receiver_id")
             .annotate(last_at=Max("created_at"))
+            .order_by("-last_at")
         ):
             other = row["receiver_id"] if row["sender_id"] == uid else row["sender_id"]
-            if other not in seen:
-                seen.add(other)
-                convos.append(
-                    messaging_pb2.ConversationSummary(
-                        type="private", conversation_id=other, display_name=other
-                    )
+            if other in seen:
+                continue
+            seen.add(other)
+            last = (
+                Message.objects.filter(type="private")
+                .filter(
+                    Q(sender_id=uid, receiver_id=other)
+                    | Q(sender_id=other, receiver_id=uid)
                 )
+                .order_by("-created_at")
+                .first()
+            )
+            preview = ""
+            ts = None
+            if last:
+                preview = last.content[:80] if last.content else "📎 File"
+                ts = _ts(last.created_at)
+            c = messaging_pb2.ConversationSummary(
+                type="private",
+                conversation_id=other,
+                display_name=other,
+                last_message_preview=preview,
+            )
+            if ts:
+                c.last_message_at.CopyFrom(ts)
+            convos.append(c)
 
         return messaging_pb2.ConversationsResponse(conversations=convos)
 
