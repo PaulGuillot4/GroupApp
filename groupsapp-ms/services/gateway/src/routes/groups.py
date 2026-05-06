@@ -67,6 +67,12 @@ def list_my_groups(current_user: dict = Depends(get_current_user)):
         _handle_rpc_error(e)
 
 
+@router.get("/", include_in_schema=False)
+def list_my_groups_root(current_user: dict = Depends(get_current_user)):
+    """GET /api/groups/ alias for chat.js compatibility."""
+    return list_my_groups(current_user=current_user)
+
+
 @router.post("", status_code=201)
 def create_group(body: CreateGroupBody, current_user: dict = Depends(get_current_user)):
     stub = get_groups_stub()
@@ -207,12 +213,6 @@ def create_channel(
         }
     except grpc.RpcError as e:
         _handle_rpc_error(e)
-
-
-@router.get("/", include_in_schema=False)
-def list_my_groups_root(current_user: dict = Depends(get_current_user)):
-    """GET /api/groups/ alias for chat.js compatibility."""
-    return list_my_groups(current_user=current_user)
 
 
 @router.get("/{group_id}")
