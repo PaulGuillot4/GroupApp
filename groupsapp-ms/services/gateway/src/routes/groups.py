@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import grpc
 
-from generated import groups_pb2
-from ..clients import get_groups_stub
+from generated import groups_pb2, users_pb2
+from ..clients import get_groups_stub, get_users_stub
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
@@ -96,10 +96,21 @@ def verify_membership(group_id: str, current_user: dict = Depends(get_current_us
 
 @router.get("/{group_id}/members")
 def list_members(group_id: str, current_user: dict = Depends(get_current_user)):
-    stub = get_groups_stub()
+    groups_stub = get_groups_stub()
+    users_stub_inst = get_users_stub()
     try:
-        resp = stub.ListMembers(groups_pb2.GetGroupRequest(group_id=group_id))
-        return [{"user_id": m.user_id, "role": m.role} for m in resp.members]
+        resp = groups_stub.ListMembers(groups_pb2.GetGroupRequest(group_id=group_id))
+        result = []
+        for m in resp.members:
+            try:
+                profile = users_stub_inst.GetProfile(
+                    users_pb2.GetProfileRequest(user_id=m.user_id)
+                )
+                username = profile.username
+            except Exception:
+                username = m.user_id
+            result.append({"user": {"id": m.user_id, "username": username}, "role": m.role})
+        return result
     except grpc.RpcError as e:
         _handle_rpc_error(e)
 
@@ -196,6 +207,12 @@ def create_channel(
         }
     except grpc.RpcError as e:
         _handle_rpc_error(e)
+
+
+@router.get("/", include_in_schema=False)
+def list_my_groups_root(current_user: dict = Depends(get_current_user)):
+    """GET /api/groups/ alias for chat.js compatibility."""
+    return list_my_groups(current_user=current_user)
 
 
 @router.get("/{group_id}")
