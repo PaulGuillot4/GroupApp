@@ -15,12 +15,14 @@ USERS_HTTP_URL = os.getenv("USERS_HTTP", "http://users:8003")
 
 class UserResponse(BaseModel):
     user_id: str
+    id: str
     username: str
     email: str
 
 
 class UserSummaryResponse(BaseModel):
     user_id: str
+    id: str
     username: str
     avatar_url: str
 
@@ -46,7 +48,7 @@ def get_me(current_user: dict = Depends(get_current_user)):
         user = stub.GetUserById(
             auth_pb2.GetUserByIdRequest(user_id=current_user["user_id"])
         )
-        return UserResponse(user_id=user.id, username=user.username, email=user.email)
+        return UserResponse(user_id=user.id, id=user.id, username=user.username, email=user.email)
     except grpc.RpcError as exc:
         if exc.code() == grpc.StatusCode.NOT_FOUND:
             raise HTTPException(status_code=404, detail="User not found")
@@ -107,7 +109,7 @@ def search_users(
         resp = stub.SearchUsers(users_pb2.SearchUsersRequest(query=q, limit=limit))
         return [
             UserSummaryResponse(
-                user_id=u.user_id, username=u.username, avatar_url=u.avatar_url
+                user_id=u.user_id, id=u.user_id, username=u.username, avatar_url=u.avatar_url
             )
             for u in resp.users
         ]
