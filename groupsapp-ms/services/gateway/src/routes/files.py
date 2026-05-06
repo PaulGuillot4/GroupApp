@@ -1,5 +1,6 @@
 import os
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 import grpc
 import httpx
 
@@ -50,3 +51,23 @@ async def upload_file(
         except httpx.RequestError:
             raise HTTPException(status_code=503, detail="Files service unavailable")
     return resp.json()
+
+
+media_router = APIRouter(tags=["media"])
+
+
+@media_router.get("/media/{path:path}")
+async def proxy_media(path: str):
+    """Proxy /media/{path} → files:8002/files/{path}."""
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(
+                f"{FILES_HTTP_URL}/files/{path}", timeout=15.0
+            )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type", "application/octet-stream"),
+            )
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="Files service unavailable")
