@@ -5,6 +5,7 @@ from .routes.users import router as users_router
 from .routes.groups import router as groups_router
 from .routes.messages import router as messages_router
 from .routes.files import router as files_router
+from .routes.frontend import router as frontend_router
 
 app = FastAPI(title="GroupsApp Gateway")
 
@@ -17,6 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(frontend_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(groups_router)
