@@ -23,6 +23,7 @@ message Message {
   string message_type = 8;
   string file_url = 9;
   google.protobuf.Timestamp created_at = 10;
+  string sender_username = 11;
 }
 
 message PushDirectMessageRequest {
