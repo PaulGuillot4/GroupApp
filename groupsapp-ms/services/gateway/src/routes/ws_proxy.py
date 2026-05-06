@@ -26,7 +26,7 @@ async def ws_proxy(websocket: WebSocket):
                         text = await websocket.receive_text()
                         await upstream.send(text)
                 except (WebSocketDisconnect, Exception):
-                    await upstream.close()
+                    pass
 
             async def _upstream_to_browser():
                 try:
@@ -35,20 +35,34 @@ async def ws_proxy(websocket: WebSocket):
                 except Exception:
                     pass
 
+            t1 = asyncio.create_task(_browser_to_upstream())
+            t2 = asyncio.create_task(_upstream_to_browser())
+
             done, pending = await asyncio.wait(
-                [
-                    asyncio.ensure_future(_browser_to_upstream()),
-                    asyncio.ensure_future(_upstream_to_browser()),
-                ],
+                [t1, t2],
                 return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:
                 task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     except websockets.exceptions.InvalidURI:
-        await websocket.close(code=1011)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+        return
     except Exception:
         try:
             await websocket.close(code=1011)
         except Exception:
             pass
+        return
+
+    try:
+        await websocket.close(code=1000)
+    except Exception:
+        pass
