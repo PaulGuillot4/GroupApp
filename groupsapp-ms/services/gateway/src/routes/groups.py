@@ -30,6 +30,10 @@ class ChangeRoleBody(BaseModel):
     role: str
 
 
+class AddMemberBody(BaseModel):
+    userId: str
+
+
 def _grpc_group(g) -> dict:
     return {
         "id": g.id,
@@ -121,13 +125,16 @@ def list_members(group_id: str, current_user: dict = Depends(get_current_user)):
         _handle_rpc_error(e)
 
 
+@router.post("/{group_id}/members/", status_code=204)
 @router.post("/{group_id}/members", status_code=204)
 def add_member(
-    group_id: str, user_id: str, current_user: dict = Depends(get_current_user)
+    group_id: str,
+    body: AddMemberBody,
+    current_user: dict = Depends(get_current_user),
 ):
     stub = get_groups_stub()
     try:
-        stub.AddMember(groups_pb2.MembershipRequest(user_id=user_id, group_id=group_id))
+        stub.AddMember(groups_pb2.MembershipRequest(user_id=body.userId, group_id=group_id))
     except grpc.RpcError as e:
         _handle_rpc_error(e)
 
