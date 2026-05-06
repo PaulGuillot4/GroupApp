@@ -75,13 +75,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return
 
         for room in list(self.joined_rooms):
-            await self.channel_layer.group_discard(room, self.channel_name)
             await self.channel_layer.group_send(room, {
                 "type": "presence_update",
                 "user_id": self.user_id,
                 "status": "offline",
                 "last_seen": datetime.now(timezone.utc).isoformat(),
             })
+            await self.channel_layer.group_discard(room, self.channel_name)
 
         await send_message_event("presence.changed", {
             "user_id": self.user_id,
@@ -125,6 +125,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     await self.send(json.dumps({"event": "error", "detail": "Not a member"}))
                     return
             except Exception:
+                await self.send(json.dumps({"event": "error", "detail": "Membership check failed"}))
                 return
 
         await self._join(room_id)
@@ -247,14 +248,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 user_id=self.user_id,
                 defaults={"status": "read"},
             )
+            await send_message_event("messages.read", {
+                "message_id": message_id,
+                "user_id": self.user_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
         except Exception:
             pass
-
-        await send_message_event("messages.read", {
-            "message_id": message_id,
-            "user_id": self.user_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
 
         try:
             sender_id = await sync_to_async(
@@ -325,7 +325,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     async def _unread_messages_for_room(self, room_id: str):
         from chat.models import Message
-        from django.db.models import Q
 
         if room_id.startswith("group_"):
             group_id = room_id[6:]
