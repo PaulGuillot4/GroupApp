@@ -130,7 +130,6 @@ services:
       USERS_GRPC: users:50052
     ports:
       - "50054:50054"
-      - "8001:8001"
     restart: unless-stopped
 
   files:
@@ -147,12 +146,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-groupsapp_ms}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      FILES_BASE_URL: http://files:8002
+      FILES_BASE_URL: http://localhost:8000/media
     volumes:
       - gms_files_data:/app/uploads
     ports:
       - "50055:50055"
-      - "8002:8002"
     restart: unless-stopped
 
   notifications:
@@ -189,6 +187,8 @@ services:
       FILES_GRPC: files:50055
       USERS_HTTP: http://users:8003
       FILES_HTTP: http://files:8002
+      MESSAGING_WS: ws://messaging:8001
+      FILES_BASE_URL: http://localhost:8000/media
     ports:
       - "8000:8000"
     restart: unless-stopped
