@@ -1,0 +1,10 @@
+# ─────────────────────────────────────────────────────────────
+# Namespace para todos los microservicios de GroupsApp
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: groupsapp
+  labels:
+    project: groupsapp
+    environment: staging

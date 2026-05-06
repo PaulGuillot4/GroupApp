@@ -1,0 +1,157 @@
+##############################################################
+# Deployment – servicio Users (gRPC :50052 + REST :8003)
+#
+# Réplicas: 2
+# Probes:  traducidas del HEALTHCHECK del Dockerfile
+#          → gRPC nativo en puerto 50052 usando el servicio
+#            grpc.health.v1.Health (el método Healthcheck del
+#            UsersServicer responde en ese puerto).
+#
+# Resiliencia (pruebas de calidad / chaos):
+#   • PodDisruptionBudget (abajo) garantiza ≥1 pod vivo
+#   • podAntiAffinity distribuye pods en nodos distintos
+#   • terminationGracePeriodSeconds da 30s de gracia
+##############################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users
+  namespace: groupsapp
+  labels:
+    app: users
+    tier: backend
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0          # 0 → nunca hay downtime durante rolling updates
+  selector:
+    matchLabels:
+      app: users
+  template:
+    metadata:
+      labels:
+        app: users
+        tier: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+
+      # ── Anti-afinidad: distribuir réplicas en nodos diferentes ──
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["users"]
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: users
+          image: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/groupsapp/users:latest
+          imagePullPolicy: Always
+          ports:
+            - name: grpc
+              containerPort: 50052
+              protocol: TCP
+            - name: metrics
+              containerPort: 8003
+              protocol: TCP
+
+          # ── Variables de entorno: ConfigMap (no sensibles) ──
+          envFrom:
+            - configMapRef:
+                name: users-config
+
+          # ── Variables de entorno: Secret (sensibles) ──
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: users-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: users-secret
+                  key: POSTGRES_PASSWORD
+
+          # ── Probes HTTP (usando /health de REST en puerto 8003) ────
+          # Traducción del HEALTHCHECK del Dockerfile.
+          # Usamos httpGet en vez de gRPC nativo porque rest.py ya
+          # expone GET /health → {"service":"users-rest","status":"OK"}
+          # y no requiere dependencias extra en el código.
+          #
+          # livenessProbe  → ¿El pod está vivo? Si falla 3 veces, K8s lo reinicia.
+          # readinessProbe → ¿El pod puede recibir tráfico? Si falla, se saca del Service.
+          # startupProbe   → ¿El pod terminó de arrancar? Mientras falla, las otras probes no corren.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics        # nombre del puerto 8003
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12   # 5 + (5×12) = 65s máximo para arrancar
+
+          # ── Graceful shutdown: espera 5s antes de matar el proceso ──
+          # Esto le da tiempo al Service de quitar el pod del balanceo
+          # antes de que el pod empiece a cerrarse.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+
+          # ── Recursos (ajustar según carga real) ──
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+---
+##############################################################
+# PodDisruptionBudget
+# Garantiza que al menos 1 réplica esté siempre disponible
+# durante mantenimiento de nodos o pruebas de caos.
+# Esto es CRÍTICO para las pruebas de calidad que mencionas.
+##############################################################
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: users-pdb
+  namespace: groupsapp
+  labels:
+    app: users
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: users

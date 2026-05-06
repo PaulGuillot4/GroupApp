@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────
+# Clúster EKS para GroupsApp
+# Usa eksctl para crear el clúster con este archivo:
+#   eksctl create cluster -f k8s/cluster/eksctl-cluster.yaml
+# ─────────────────────────────────────────────────────────────
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: groupsapp-cluster
+  region: us-east-1               # ← CAMBIAR a tu región
+  version: "1.30"
+
+# ── IAM: permite que los pods accedan a ECR ──
+iam:
+  withOIDC: true
+
+# ── Nodos: 2 nodos t3.medium son suficientes para pruebas ──
+managedNodeGroups:
+  - name: workers
+    instanceType: t3.medium       # 2 vCPU, 4 GB RAM — suficiente para 7 microservicios
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 4                    # autoescala si la carga sube
+    volumeSize: 30                # GB de disco por nodo
+    labels:
+      role: worker
+    tags:
+      environment: staging
+    iam:
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+# ── Addons del clúster ──
+addons:
+  - name: vpc-cni
+  - name: coredns
+  - name: kube-proxy
+
+# ── CloudWatch Logging (para auditoría) ──
+cloudWatch:
+  clusterLogging:
+    enableTypes:
+      - api
+      - audit
+      - authenticator

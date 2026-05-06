@@ -1,0 +1,33 @@
+##############################################################
+# Service – ClusterIP para el servicio Users
+# Puertos:
+#   50052 → gRPC  (main.py línea 111: "0.0.0.0:50052")
+#    8003 → REST / métricas  (main.py línea 126: uvicorn port=8003)
+#
+# Tipo ClusterIP: solo accesible dentro del clúster.
+# El gateway y otros microservicios se conectan vía DNS:
+#   users.groupsapp.svc.cluster.local:50052
+##############################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: users
+  namespace: groupsapp
+  labels:
+    app: users
+    tier: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: users
+  ports:
+    - name: grpc
+      port: 50052
+      targetPort: grpc
+      protocol: TCP
+      appProtocol: grpc       # para AWS ALB Controller / service mesh
+    - name: metrics
+      port: 8003
+      targetPort: metrics
+      protocol: TCP
+      appProtocol: http

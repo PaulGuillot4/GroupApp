@@ -1,0 +1,21 @@
+##############################################################
+# ConfigMap – variables no sensibles del servicio Users
+# Fuentes:
+#   POSTGRES_HOST / POSTGRES_PORT / POSTGRES_DB  → src/db.py (os.getenv)
+#   USERS_BASE_URL                                → src/rest.py (os.getenv)
+#   PYTHONPATH                                    → Dockerfile  (ENV)
+##############################################################
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: users-config
+  namespace: groupsapp
+  labels:
+    app: users
+    tier: backend
+data:
+  POSTGRES_HOST: "postgres"           # DNS del Service de PostgreSQL en el clúster
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "groupsapp_ms"
+  USERS_BASE_URL: "http://users:8003" # usado por rest.py
+  PYTHONPATH: "/app/generated:/app"   # requerido por el Dockerfile
