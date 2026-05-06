@@ -87,16 +87,11 @@
                 if (res.ok) {
                     localStorage.setItem('access_token', data.access_token);
                     localStorage.setItem('refresh_token', data.refresh_token);
-                    localStorage.setItem('user_id', data.user.id);
-                    localStorage.setItem('user_data', JSON.stringify(data.user));
+                    localStorage.setItem('user_id', data.user_id);
+                    localStorage.setItem('user_data', JSON.stringify({ id: data.user_id, username: data.username, email: data.email }));
                     window.location.href = '/app/';
                 } else {
-                    let errStr = data.error?.message || 'Registration failed';
-                    if (data.error?.details) {
-                        const firstKey = Object.keys(data.error.details)[0];
-                        errStr += `: ${data.error.details[firstKey][0] || data.error.details[firstKey]}`;
-                    }
-                    errorMsg.textContent = errStr;
+                    errorMsg.textContent = data.detail || 'Registration failed';
                     errorMsg.classList.remove('hidden');
                 }
             } catch (err) {
