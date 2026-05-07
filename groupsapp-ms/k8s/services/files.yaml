@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────
+# Files — Deployment (2 réplicas) + Service ClusterIP
+# gRPC :50055 + REST :8002
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: files
+  namespace: groupsapp
+  labels:
+    app: files
+    tier: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app: files
+  template:
+    metadata:
+      labels:
+        app: files
+        tier: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: files
+          # ── ECR image (reemplazar ACCOUNT_ID) ──
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/files:latest
+          imagePullPolicy: Always
+          ports:
+            - name: grpc
+              containerPort: 50055
+            - name: http
+              containerPort: 8002
+          envFrom:
+            - configMapRef:
+                name: groupsapp-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_PASSWORD }
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: files
+  namespace: groupsapp
+  labels: { app: files }
+spec:
+  type: ClusterIP
+  selector: { app: files }
+  ports:
+    - name: grpc
+      port: 50055
+      targetPort: grpc
+      appProtocol: grpc
+    - name: http
+      port: 8002
+      targetPort: http
+      appProtocol: http

@@ -1,0 +1,83 @@
+# ─────────────────────────────────────────────────────────────
+# Messaging — Deployment (2 réplicas) + Service ClusterIP
+# gRPC :50054 + WebSocket :8001
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messaging
+  namespace: groupsapp
+  labels:
+    app: messaging
+    tier: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app: messaging
+  template:
+    metadata:
+      labels:
+        app: messaging
+        tier: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: messaging
+          # ── ECR image (reemplazar ACCOUNT_ID) ──
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/messaging:latest
+          imagePullPolicy: Always
+          ports:
+            - name: grpc
+              containerPort: 50054
+            - name: ws
+              containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: groupsapp-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_PASSWORD }
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: JWT_SECRET_KEY }
+          # ── Readiness via WebSocket port (HTTP healthcheck) ──
+          readinessProbe:
+            tcpSocket:
+              port: ws
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: ws
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: messaging
+  namespace: groupsapp
+  labels: { app: messaging }
+spec:
+  type: ClusterIP
+  selector: { app: messaging }
+  ports:
+    - name: grpc
+      port: 50054
+      targetPort: grpc
+      appProtocol: grpc
+    - name: ws
+      port: 8001
+      targetPort: ws
+      appProtocol: http

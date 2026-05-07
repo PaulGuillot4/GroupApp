@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────
+# Notifications — Deployment (2 réplicas) + NO Service
+# Consumer Kafka, sin puertos expuestos públicamente
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifications
+  namespace: groupsapp
+  labels:
+    app: notifications
+    tier: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app: notifications
+  template:
+    metadata:
+      labels:
+        app: notifications
+        tier: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: notifications
+          # ── ECR image (reemplazar ACCOUNT_ID) ──
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/notifications:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: groupsapp-config
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits:   { cpu: 300m, memory: 128Mi }

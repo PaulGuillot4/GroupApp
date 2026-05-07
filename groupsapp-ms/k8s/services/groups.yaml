@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────
+# Groups — Deployment (2 réplicas) + Service ClusterIP
+# gRPC :50053
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: groups
+  namespace: groupsapp
+  labels:
+    app: groups
+    tier: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app: groups
+  template:
+    metadata:
+      labels:
+        app: groups
+        tier: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: groups
+          # ── ECR image (reemplazar ACCOUNT_ID) ──
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/groups:latest
+          imagePullPolicy: Always
+          ports:
+            - name: grpc
+              containerPort: 50053
+          envFrom:
+            - configMapRef:
+                name: groupsapp-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_PASSWORD }
+          # ── gRPC readiness via tcp ──
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: groups
+  namespace: groupsapp
+  labels: { app: groups }
+spec:
+  type: ClusterIP
+  selector: { app: groups }
+  ports:
+    - name: grpc
+      port: 50053
+      targetPort: grpc
+      appProtocol: grpc

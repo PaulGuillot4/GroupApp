@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────
+# Ingress — NGINX Ingress Controller (compatible AWS Academy)
+#
+# ⚠️ AWS ALB Controller requiere IAM roles que NO están
+#    disponibles en AWS Academy. Usamos NGINX Ingress.
+#
+# Instalar primero:
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.9.4/deploy/static/provider/aws/deploy.yaml
+#
+# Rutas:
+#   /api/*        → gateway:8000
+#   /health       → gateway:8000
+#   /ws/*         → messaging:8001 (WebSocket)
+# ─────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: groupsapp-ingress
+  namespace: groupsapp
+  labels:
+    project: groupsapp
+  annotations:
+    # ── NGINX: soporte WebSocket y timeouts largos ──
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+    # ── CORS (para frontend en otro dominio) ──
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # ── API Gateway (todo /api/* y /health) ──
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8000
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8000
+          # ── WebSocket (messaging) ──
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: messaging
+                port:
+                  number: 8001

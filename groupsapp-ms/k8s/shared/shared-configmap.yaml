@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────
+# ConfigMap compartido — variables no sensibles
+# DNS internos del clúster:
+#   <service>.<namespace>.svc.cluster.local
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: groupsapp-config
+  namespace: groupsapp
+  labels:
+    project: groupsapp
+data:
+  # ── PostgreSQL ──
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "groupsapp_ms"
+  # ── Kafka ──
+  KAFKA_BROKER: "kafka:9092"
+  # ── MongoDB ──
+  MONGO_HOST: "mongodb"
+  MONGO_PORT: "27017"
+  MONGO_DB: "groupsapp_messages"
+  # ── gRPC endpoints internos ──
+  AUTH_GRPC: "auth:50051"
+  USERS_GRPC: "users:50052"
+  GROUPS_GRPC: "groups:50053"
+  MESSAGING_GRPC: "messaging:50054"
+  FILES_GRPC: "files:50055"
+  # ── HTTP endpoints internos ──
+  USERS_HTTP: "http://users:8003"
+  FILES_HTTP: "http://files:8002"
+  FILES_BASE_URL: "http://files:8002"
+  # ── Python ──
+  PYTHONPATH: "/app/generated:/app"
+  LOG_LEVEL: "INFO"

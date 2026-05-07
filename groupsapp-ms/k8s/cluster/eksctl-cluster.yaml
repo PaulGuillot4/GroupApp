@@ -1,49 +1,45 @@
 # ─────────────────────────────────────────────────────────────
-# Clúster EKS para GroupsApp
-# Usa eksctl para crear el clúster con este archivo:
+# Clúster EKS para GroupsApp — CORREGIDO PARA AWS ACADEMY
+#
+# Uso:
 #   eksctl create cluster -f k8s/cluster/eksctl-cluster.yaml
+#
+# IMPORTANTE: Reemplazar <ACCOUNT_ID> con tu ID real:
+#   aws sts get-caller-identity --query 'Account' --output text
 # ─────────────────────────────────────────────────────────────
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
 
 metadata:
   name: groupsapp-cluster
-  region: us-east-1               # ← CAMBIAR a tu región
+  region: us-east-1
   version: "1.30"
 
-# ── IAM: permite que los pods accedan a ECR ──
-iam:
-  withOIDC: true
+# ⚠️ AWS ACADEMY: NO incluir iam.withOIDC (no se puede crear OIDC provider)
+# ⚠️ AWS ACADEMY: NO incluir cloudWatch.clusterLogging (falla por permisos)
 
-# ── Nodos: 2 nodos t3.medium son suficientes para pruebas ──
 managedNodeGroups:
   - name: workers
-    instanceType: t3.medium       # 2 vCPU, 4 GB RAM — suficiente para 7 microservicios
+    instanceType: t3.medium         # 2 vCPU, 4 GB RAM — suficiente para 7 microservicios + infra
     desiredCapacity: 2
     minSize: 2
-    maxSize: 4                    # autoescala si la carga sube
-    volumeSize: 30                # GB de disco por nodo
+    maxSize: 4                      # Autoescalado si la carga sube
+    volumeSize: 30                  # GB de disco por nodo
     labels:
       role: worker
     tags:
       environment: staging
+    # ── CLAVE AWS ACADEMY: usar LabRole existente ──
     iam:
-      attachPolicyARNs:
-        - arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
-        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
-        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      instanceRoleARN: arn:aws:iam::<ACCOUNT_ID>:role/LabRole
+      # NO incluir attachPolicyARNs — LabRole ya tiene permisos necesarios:
+      #   - AmazonEKSWorkerNodePolicy
+      #   - AmazonEKS_CNI_Policy
+      #   - AmazonEC2ContainerRegistryReadOnly
+      #   - AmazonSSMManagedInstanceCore
 
 # ── Addons del clúster ──
 addons:
   - name: vpc-cni
   - name: coredns
   - name: kube-proxy
-
-# ── CloudWatch Logging (para auditoría) ──
-cloudWatch:
-  clusterLogging:
-    enableTypes:
-      - api
-      - audit
-      - authenticator

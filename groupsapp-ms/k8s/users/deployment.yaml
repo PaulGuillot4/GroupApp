@@ -2,15 +2,15 @@
 # Deployment – servicio Users (gRPC :50052 + REST :8003)
 #
 # Réplicas: 2
-# Probes:  traducidas del HEALTHCHECK del Dockerfile
-#          → gRPC nativo en puerto 50052 usando el servicio
-#            grpc.health.v1.Health (el método Healthcheck del
-#            UsersServicer responde en ese puerto).
+# Probes:  httpGet en /health puerto 8003 (REST)
 #
 # Resiliencia (pruebas de calidad / chaos):
 #   • PodDisruptionBudget (abajo) garantiza ≥1 pod vivo
 #   • podAntiAffinity distribuye pods en nodos distintos
 #   • terminationGracePeriodSeconds da 30s de gracia
+#
+# NOTA: Este archivo es una versión extendida de k8s/services/users.yaml
+#       con features avanzados de resiliencia. Usar UNO u OTRO, no ambos.
 ##############################################################
 apiVersion: apps/v1
 kind: Deployment
@@ -54,7 +54,8 @@ spec:
 
       containers:
         - name: users
-          image: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/groupsapp/users:latest
+          # ── ECR image (reemplazar ACCOUNT_ID) ──
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/users:latest
           imagePullPolicy: Always
           ports:
             - name: grpc
@@ -64,37 +65,29 @@ spec:
               containerPort: 8003
               protocol: TCP
 
-          # ── Variables de entorno: ConfigMap (no sensibles) ──
+          # ── Variables de entorno: ConfigMap COMPARTIDO ──
           envFrom:
             - configMapRef:
-                name: users-config
+                name: groupsapp-config
 
-          # ── Variables de entorno: Secret (sensibles) ──
+          # ── Variables de entorno: Secret COMPARTIDO ──
           env:
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
-                  name: users-secret
+                  name: groupsapp-secret
                   key: POSTGRES_USER
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: users-secret
+                  name: groupsapp-secret
                   key: POSTGRES_PASSWORD
 
           # ── Probes HTTP (usando /health de REST en puerto 8003) ────
-          # Traducción del HEALTHCHECK del Dockerfile.
-          # Usamos httpGet en vez de gRPC nativo porque rest.py ya
-          # expone GET /health → {"service":"users-rest","status":"OK"}
-          # y no requiere dependencias extra en el código.
-          #
-          # livenessProbe  → ¿El pod está vivo? Si falla 3 veces, K8s lo reinicia.
-          # readinessProbe → ¿El pod puede recibir tráfico? Si falla, se saca del Service.
-          # startupProbe   → ¿El pod terminó de arrancar? Mientras falla, las otras probes no corren.
           livenessProbe:
             httpGet:
               path: /health
-              port: metrics        # nombre del puerto 8003
+              port: metrics
             initialDelaySeconds: 20
             periodSeconds: 15
             timeoutSeconds: 5
@@ -119,15 +112,13 @@ spec:
             periodSeconds: 5
             failureThreshold: 12   # 5 + (5×12) = 65s máximo para arrancar
 
-          # ── Graceful shutdown: espera 5s antes de matar el proceso ──
-          # Esto le da tiempo al Service de quitar el pod del balanceo
-          # antes de que el pod empiece a cerrarse.
+          # ── Graceful shutdown ──
           lifecycle:
             preStop:
               exec:
                 command: ["sleep", "5"]
 
-          # ── Recursos (ajustar según carga real) ──
+          # ── Recursos ──
           resources:
             requests:
               cpu: 100m
@@ -139,9 +130,6 @@ spec:
 ---
 ##############################################################
 # PodDisruptionBudget
-# Garantiza que al menos 1 réplica esté siempre disponible
-# durante mantenimiento de nodos o pruebas de caos.
-# Esto es CRÍTICO para las pruebas de calidad que mencionas.
 ##############################################################
 apiVersion: policy/v1
 kind: PodDisruptionBudget

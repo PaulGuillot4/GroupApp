@@ -1,0 +1,109 @@
+# ─────────────────────────────────────────────────────────────
+# Users — Deployment (2 réplicas) + Service ClusterIP
+# gRPC :50052 + REST :8003
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users
+  namespace: groupsapp
+  labels:
+    app: users
+    tier: backend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app: users
+  template:
+    metadata:
+      labels:
+        app: users
+        tier: backend
+    spec:
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: ["users"]
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: users
+          # ── ECR image (reemplazar ACCOUNT_ID) ──
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/users:latest
+          imagePullPolicy: Always
+          ports:
+            - name: grpc
+              containerPort: 50052
+            - name: http
+              containerPort: 8003
+          envFrom:
+            - configMapRef:
+                name: groupsapp-config
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_PASSWORD }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users
+  namespace: groupsapp
+  labels: { app: users }
+spec:
+  type: ClusterIP
+  selector: { app: users }
+  ports:
+    - name: grpc
+      port: 50052
+      targetPort: grpc
+      appProtocol: grpc
+    - name: http
+      port: 8003
+      targetPort: http
+      appProtocol: http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: users-pdb
+  namespace: groupsapp
+  labels: { app: users }
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: users
