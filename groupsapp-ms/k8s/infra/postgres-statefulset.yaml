@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────
-# PostgreSQL — StatefulSet (1 réplica) + PVC + Service
+# PostgreSQL — StatefulSet (2 réplica) + PVC + Service
 # ─────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
@@ -35,6 +35,8 @@ spec:
       labels:
         app: postgres
     spec:
+      securityContext:
+        fsGroup: 999          # GID del usuario postgres en la imagen alpine
       containers:
         - name: postgres
           image: postgres:15-alpine
@@ -56,6 +58,8 @@ spec:
                 secretKeyRef:
                   name: groupsapp-secret
                   key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata   # Subdirectorio para evitar lost+found
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
@@ -87,6 +91,7 @@ spec:
         name: postgres-data
       spec:
         accessModes: ["ReadWriteOnce"]
+        storageClassName: gp2
         resources:
           requests:
             storage: 5Gi

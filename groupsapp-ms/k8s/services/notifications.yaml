@@ -28,7 +28,7 @@ spec:
       containers:
         - name: notifications
           # ── ECR image (reemplazar ACCOUNT_ID) ──
-          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/notifications:latest
+          image: jeanguillot/groupsapp-notifications:v1
           imagePullPolicy: Always
           envFrom:
             - configMapRef:

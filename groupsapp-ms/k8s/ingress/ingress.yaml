@@ -35,7 +35,15 @@ spec:
   rules:
     - http:
         paths:
-          # ── API Gateway (todo /api/* y /health) ──
+          # ── Frontend (UI web: login, register, chat) ──
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8000
+          # ── API Gateway (todo /api/*) ──
           - path: /api
             pathType: Prefix
             backend:
@@ -45,6 +53,14 @@ spec:
                   number: 8000
           - path: /health
             pathType: Exact
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8000
+          # ── Archivos estáticos ──
+          - path: /static
+            pathType: Prefix
             backend:
               service:
                 name: gateway

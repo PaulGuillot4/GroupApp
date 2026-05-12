@@ -28,7 +28,7 @@ spec:
       containers:
         - name: gateway
           # ── ECR image (reemplazar ACCOUNT_ID) ──
-          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/gateway:latest
+          image: jeanguillot/groupsapp-gateway:v1
           imagePullPolicy: Always
           ports:
             - name: http

@@ -58,15 +58,17 @@ spec:
             - name: mongodb-data
               mountPath: /data/db
           readinessProbe:
-            exec:
-              command: ["mongosh", "--eval", "db.adminCommand('ping')"]
-            initialDelaySeconds: 10
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 15
             periodSeconds: 10
+            failureThreshold: 5
           livenessProbe:
-            exec:
-              command: ["mongosh", "--eval", "db.adminCommand('ping')"]
-            initialDelaySeconds: 30
-            periodSeconds: 15
+            tcpSocket:
+              port: 27017
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            failureThreshold: 3
           resources:
             requests:
               cpu: 200m
@@ -79,6 +81,7 @@ spec:
         name: mongodb-data
       spec:
         accessModes: ["ReadWriteOnce"]
+        storageClassName: gp2
         resources:
           requests:
             storage: 5Gi

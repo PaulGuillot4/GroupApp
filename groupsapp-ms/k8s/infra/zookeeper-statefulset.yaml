@@ -36,6 +36,8 @@ spec:
       labels:
         app: zookeeper
     spec:
+      securityContext:
+        fsGroup: 1000          # GID de appuser en imágenes Confluent
       containers:
         - name: zookeeper
           image: confluentinc/cp-zookeeper:7.5.0
@@ -47,7 +49,9 @@ spec:
             - name: ZOOKEEPER_TICK_TIME
               value: "2000"
             - name: ZOOKEEPER_DATA_DIR
-              value: "/var/lib/zookeeper/data"
+              value: "/var/lib/zookeeper/data/datadir"  # Subdirectorio para evitar lost+found
+            - name: ZOOKEEPER_LOG_DIR
+              value: "/var/lib/zookeeper/data/datalog"
           volumeMounts:
             - name: zookeeper-data
               mountPath: /var/lib/zookeeper/data
@@ -73,6 +77,7 @@ spec:
         name: zookeeper-data
       spec:
         accessModes: ["ReadWriteOnce"]
+        storageClassName: gp2
         resources:
           requests:
             storage: 2Gi

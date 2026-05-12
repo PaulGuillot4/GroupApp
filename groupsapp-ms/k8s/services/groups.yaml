@@ -28,7 +28,7 @@ spec:
       containers:
         - name: groups
           # ── ECR image (reemplazar ACCOUNT_ID) ──
-          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/groups:latest
+          image: jeanguillot/groupsapp-groups:v1
           imagePullPolicy: Always
           ports:
             - name: grpc

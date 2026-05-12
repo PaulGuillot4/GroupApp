@@ -4,7 +4,7 @@
 # Uso:
 #   eksctl create cluster -f k8s/cluster/eksctl-cluster.yaml
 #
-# IMPORTANTE: Reemplazar <ACCOUNT_ID> con tu ID real:
+# IMPORTANTE: Reemplazar 550872379330 con tu ID real:
 #   aws sts get-caller-identity --query 'Account' --output text
 # ─────────────────────────────────────────────────────────────
 apiVersion: eksctl.io/v1alpha5
@@ -14,6 +14,10 @@ metadata:
   name: groupsapp-cluster
   region: us-east-1
   version: "1.30"
+
+# ── CLAVE AWS ACADEMY: usar LabRole para el clúster (ServiceRole) ──
+iam:
+  serviceRoleARN: "arn:aws:iam::263106799112:role/LabRole"
 
 # ⚠️ AWS ACADEMY: NO incluir iam.withOIDC (no se puede crear OIDC provider)
 # ⚠️ AWS ACADEMY: NO incluir cloudWatch.clusterLogging (falla por permisos)
@@ -31,7 +35,7 @@ managedNodeGroups:
       environment: staging
     # ── CLAVE AWS ACADEMY: usar LabRole existente ──
     iam:
-      instanceRoleARN: arn:aws:iam::<ACCOUNT_ID>:role/LabRole
+      instanceRoleARN: arn:aws:iam::263106799112:role/LabRole
       # NO incluir attachPolicyARNs — LabRole ya tiene permisos necesarios:
       #   - AmazonEKSWorkerNodePolicy
       #   - AmazonEKS_CNI_Policy

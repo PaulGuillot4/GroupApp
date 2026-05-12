@@ -31,7 +31,7 @@ spec:
       containers:
         - name: auth
           # ── ECR image (reemplazar ACCOUNT_ID) ──
-          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/groupsapp/auth:latest
+          image: jeanguillot/groupsapp-auth:v1
           imagePullPolicy: Always
           ports:
             - name: grpc
