@@ -253,39 +253,44 @@ function onNewMessage(msg) {
 
     const isMine = msg.sender.id === MY_ID;
 
-    // Update sidebar
+    // Resolve conversation name for sidebar
+    let convName;
+    if (msg.type === "private") {
+        convName = isMine ? (activeRoom?.name || "User") : msg.sender.username;
+    } else {
+        // For groups, try to recover the name from the existing sidebar item
+        const list = document.getElementById("groups-list");
+        const existingItem = list.querySelector(`[data-conv-id="group_${msg.group}"]`);
+        const existingNameEl = existingItem ? existingItem.querySelector("p.font-semibold") : null;
+        convName = existingNameEl ? existingNameEl.textContent.trim()
+                 : (activeRoom?.kind === "group" && activeRoom?.groupId === msg.group ? activeRoom.name : "Group");
+    }
+
+    // Determine if this chat is currently active
+    const isActiveChat = activeRoom && activeRoom.roomId === roomId;
+
+    // Update sidebar (move to top, show badge if chat not open and message not mine)
     const convData = {
         kind: msg.type,
-        id:
-            msg.type === "private"
-                ? isMine
-                    ? msg.receiver
-                    : msg.sender.id
-                : msg.type === "group"
-                  ? msg.group
-                  : msg.channel,
-        name:
-            msg.type === "private"
-                ? isMine
-                    ? activeRoom?.name || "User"
-                    : msg.sender.username
-                : "Group",
+        id:  msg.type === "private" ? (isMine ? msg.receiver : msg.sender.id)
+           : msg.type === "group"   ? msg.group
+           : msg.channel,
+        name: convName,
         last_message: msg,
+        unread: !isMine && !isActiveChat,
     };
-    if (convData.kind === "private" && !isMine)
-        convData.name = msg.sender.username;
     addConversationToDom(convData, true);
 
     // Deduplicate
     if (document.querySelector(`[data-msg-id="${msg.id}"]`)) return;
 
-    if (activeRoom && activeRoom.roomId === roomId) {
-        const list = document.getElementById("messages-list");
+    if (isActiveChat) {
+        const msgList = document.getElementById("messages-list");
         const st = isMine ? "sent" : null;
         const el = buildMessageEl(msg, st);
-        list.appendChild(el);
-        list.parentElement.scrollTo({
-            top: list.parentElement.scrollHeight,
+        msgList.appendChild(el);
+        msgList.parentElement.scrollTo({
+            top: msgList.parentElement.scrollHeight,
             behavior: "smooth",
         });
 
@@ -372,22 +377,20 @@ async function openPrivateChat(otherUser) {
         const res = await apiFetch(`/api/messages/private/${otherUser.id}/?page=1`);
         if (res.ok) {
             const data = await res.json();
-            const messages = data.results || data;
-            const sorted = Array.isArray(messages)
-                ? messages.slice().reverse()
-                : [];
+            // API returns messages oldest-first; no reversal needed
+            const messages = Array.isArray(data.results || data) ? (data.results || data) : [];
 
-            // If fewer than page_size returned, no more pages
+            // If no next page, disable infinite scroll
             if (!data.next) roomPagination[roomId].hasMore = false;
 
-            sorted.forEach((msg) => {
+            messages.forEach((msg) => {
                 const el = buildMessageEl(msg, msg.status);
                 list.appendChild(el);
             });
 
             list.parentElement.scrollTop = list.parentElement.scrollHeight;
 
-            sorted.forEach((msg) => {
+            messages.forEach((msg) => {
                 if (msg.sender.id !== MY_ID && msg.status !== "read") {
                     wsSend({ action: "mark_as_read", messageId: msg.id });
                 }
@@ -432,14 +435,12 @@ async function openGroupChat(group) {
         const res = await apiFetch(`/api/messages/group/${group.id}/?page=1`);
         if (res.ok) {
             const data = await res.json();
-            const messages = data.results || data;
-            const sorted = Array.isArray(messages)
-                ? messages.slice().reverse()
-                : [];
+            // API returns messages oldest-first; no reversal needed
+            const messages = Array.isArray(data.results || data) ? (data.results || data) : [];
 
             if (!data.next) roomPagination[roomId].hasMore = false;
 
-            sorted.forEach((msg) => {
+            messages.forEach((msg) => {
                 const el = buildMessageEl(msg, msg.status);
                 list.appendChild(el);
             });
@@ -499,7 +500,7 @@ async function loadOlderMessages() {
                 const fragment = document.createDocumentFragment();
                 sorted.forEach((msg) => {
                     const el = buildMessageEl(msg, msg.status);
-                    fragment.appendChild(el);
+                    fragment.prepend(el);
                 });
                 list.prepend(fragment);
 
@@ -615,15 +616,34 @@ async function loadConversations() {
     );
 
     try {
-        const res = await apiFetch("/api/messages/conversations/");
-        if (!res.ok) {
-            const errText = await res.text();
-            console.error("Conversations API error:", res.status, errText);
-            loading.textContent = "Error loading chats (" + res.status + ")";
-            loading.classList.remove("hidden");
-            return;
-        }
-        const conversations = await res.json();
+        // Fetch conversations (from messages) and user groups in parallel
+        const [convRes, groupsRes] = await Promise.all([
+            apiFetch("/api/messages/conversations/"),
+            apiFetch("/api/groups/me"),
+        ]);
+
+        const conversations = convRes.ok ? await convRes.json() : [];
+        const myGroups = groupsRes.ok ? await groupsRes.json() : [];
+
+        // Track which group IDs already appear in conversations
+        const seenGroupIds = new Set(
+            conversations
+                .filter((c) => c.kind === "group")
+                .map((c) => c.id)
+        );
+
+        // Add groups that have no messages yet
+        myGroups.forEach((g) => {
+            if (!seenGroupIds.has(g.id)) {
+                conversations.push({
+                    kind: "group",
+                    id: g.id,
+                    name: g.name,
+                    last_message: null,
+                });
+            }
+        });
+
         loading.classList.add("hidden");
 
         if (conversations.length === 0) {
@@ -647,7 +667,9 @@ async function loadConversations() {
  */
 function addConversationToDom(c, moveToTop = false) {
     const list = document.getElementById("groups-list");
+    // Preserve unread count from existing item before removing it
     const existing = list.querySelector(`[data-conv-id="${c.kind}_${c.id}"]`);
+    const prevUnread = existing ? parseInt(existing.dataset.unread || "0", 10) : 0;
     if (existing) existing.remove();
 
     const item = document.createElement("div");
@@ -656,6 +678,13 @@ function addConversationToDom(c, moveToTop = false) {
         "conv-item flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-wa-panel transition-colors border-b border-wa-border";
     if (activeRoom && activeRoom.roomId === `${c.kind}_${c.id}`)
         item.classList.add("active");
+
+    // Compute unread badge count
+    const newUnread = c.unread ? prevUnread + 1 : 0;
+    item.dataset.unread = newUnread;
+    const badgeHtml = newUnread > 0
+        ? `<span class="ml-1 min-w-[20px] h-5 px-1 rounded-full bg-[#00a884] text-[#111b21] text-[11px] font-bold flex items-center justify-center">${newUnread}</span>`
+        : "";
 
     const lastMsgText = c.last_message
         ? c.last_message.message_type === "image"
@@ -672,7 +701,10 @@ function addConversationToDom(c, moveToTop = false) {
         <div class="flex-1 min-w-0">
             <div class="flex justify-between items-baseline mb-0.5">
                 <p class="font-semibold text-wa-light truncate pr-2">${escHtml(c.name)}</p>
-                <span class="text-[11px] text-[#8696a0] shrink-0">${c.last_message ? timeStr(c.last_message.created_at) : ""}</span>
+                <div class="flex items-center gap-1 shrink-0">
+                    <span class="text-[11px] text-[#8696a0]">${c.last_message ? timeStr(c.last_message.created_at) : ""}</span>
+                    ${badgeHtml}
+                </div>
             </div>
             <p class="text-xs text-[#8696a0] truncate">${escHtml(lastMsgText)}</p>
         </div>`;
@@ -682,6 +714,10 @@ function addConversationToDom(c, moveToTop = false) {
             el.classList.remove("active")
         );
         item.classList.add("active");
+        // Reset unread badge when user opens the chat
+        item.dataset.unread = "0";
+        const badge = item.querySelector(".rounded-full.bg-\\[\\#00a884\\].text-\\[\\#111b21\\]");
+        if (badge) badge.remove();
         if (c.kind === "private") {
             openPrivateChat({ id: c.id, username: c.name });
         } else {
@@ -1047,6 +1083,32 @@ document.addEventListener("DOMContentLoaded", async () => {
         .getElementById("btn-close-right")
         .addEventListener("click", () => {
             document.getElementById("right-panel").style.width = "0";
+        });
+
+    // ── Leave Group ───────────────────────────────────────────────
+    document
+        .getElementById("btn-leave-group")
+        .addEventListener("click", async () => {
+            if (!activeRoom || activeRoom.kind !== "group") return;
+            if (!confirm(`Leave group "${activeRoom.name}"?`)) return;
+            const res = await apiFetch(
+                `/api/groups/${activeRoom.groupId}/leave`,
+                { method: "POST" }
+            );
+            if (res.ok || res.status === 204) {
+                // Close panel and remove from sidebar
+                document.getElementById("right-panel").style.width = "0";
+                const list = document.getElementById("groups-list");
+                const item = list.querySelector(`[data-conv-id="group_${activeRoom.groupId}"]`);
+                if (item) item.remove();
+                // Reset chat area
+                activeRoom = null;
+                document.getElementById("no-chat-selected").classList.remove("hidden");
+                document.getElementById("messages-list").innerHTML = "";
+                document.getElementById("message-input").disabled = true;
+            } else {
+                alert("Could not leave the group. Are you the owner?");
+            }
         });
 
     // Add Member in Group Info
