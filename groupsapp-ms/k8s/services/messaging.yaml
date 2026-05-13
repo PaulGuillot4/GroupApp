@@ -39,12 +39,15 @@ spec:
             - configMapRef:
                 name: groupsapp-config
           env:
-            - name: POSTGRES_USER
+            - name: MONGO_USER
               valueFrom:
-                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_USER }
-            - name: POSTGRES_PASSWORD
+                secretKeyRef: { name: groupsapp-secret, key: MONGO_USER }
+            - name: MONGO_PASSWORD
               valueFrom:
-                secretKeyRef: { name: groupsapp-secret, key: POSTGRES_PASSWORD }
+                secretKeyRef: { name: groupsapp-secret, key: MONGO_PASSWORD }
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef: { name: groupsapp-config, key: REDIS_URL }
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef: { name: groupsapp-secret, key: JWT_SECRET_KEY }

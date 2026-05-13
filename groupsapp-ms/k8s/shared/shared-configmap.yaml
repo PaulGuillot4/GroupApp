@@ -31,6 +31,8 @@ data:
   USERS_HTTP: "http://users:8003"
   FILES_HTTP: "http://files:8002"
   FILES_BASE_URL: "http://files:8002"
+  # ── Redis ──
+  REDIS_URL: "redis://redis:6379/0"
   # ── Python ──
   PYTHONPATH: "/app/generated:/app"
   LOG_LEVEL: "INFO"

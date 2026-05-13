@@ -60,6 +60,10 @@ echo "  [2.4] Kafka..."
 kubectl apply -f k8s/infra/kafka-statefulset.yaml
 kubectl -n ${NAMESPACE} rollout status statefulset/kafka --timeout=180s
 
+echo "  [2.5] Redis..."
+kubectl apply -f k8s/infra/redis-deployment.yaml
+kubectl -n ${NAMESPACE} rollout status deployment/redis --timeout=120s
+
 echo "✓ Infraestructura lista"
 
 # ── Paso 3: Microservicios ──
