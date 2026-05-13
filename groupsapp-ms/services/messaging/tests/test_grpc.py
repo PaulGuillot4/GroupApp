@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 from generated import messaging_pb2
 
 
-@pytest.mark.django_db
 def test_get_message_history_group(make_message):
     from grpc_server import MessagingServicer
     make_message(type="group", group_id="grp-test", content="hello")
@@ -17,7 +16,6 @@ def test_get_message_history_group(make_message):
     assert "hello" in contents and "world" in contents
 
 
-@pytest.mark.django_db
 def test_get_message_history_private(make_message):
     from grpc_server import MessagingServicer
     make_message(type="private", sender_id="u1", receiver_id="u2", content="hi u2")
@@ -31,7 +29,6 @@ def test_get_message_history_private(make_message):
     assert len(resp.messages) == 2
 
 
-@pytest.mark.django_db
 def test_list_conversations(make_message):
     from grpc_server import MessagingServicer
     make_message(type="group", group_id="grp-a", sender_id="u1")

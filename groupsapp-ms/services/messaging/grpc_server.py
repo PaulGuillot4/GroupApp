@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 import threading
 from concurrent import futures
 from datetime import timezone
@@ -16,6 +17,8 @@ django.setup()
 sys.path.insert(0, os.path.dirname(__file__))
 from generated import messaging_pb2, messaging_pb2_grpc, common_pb2
 
+import repository as repo
+
 
 def _ts(dt):
     ts = timestamp_pb2.Timestamp()
@@ -26,19 +29,21 @@ def _ts(dt):
 
 
 def _msg_to_proto(m):
+    """Convert a MongoDB dict to a gRPC Message."""
     msg = messaging_pb2.Message(
-        id=str(m.id),
-        sender_id=m.sender_id,
-        sender_username=m.sender_username,
-        type=m.type,
-        group_id=m.group_id,
-        channel_id=m.channel_id,
-        receiver_id=m.receiver_id,
-        content=m.content,
-        message_type=m.message_type,
-        file_url=m.file_url,
+        id=str(m["_id"]),
+        sender_id=m.get("sender_id", ""),
+        sender_username=m.get("sender_username", ""),
+        type=m.get("type", ""),
+        group_id=m.get("group_id", ""),
+        channel_id=m.get("channel_id", ""),
+        receiver_id=m.get("receiver_id", ""),
+        content=m.get("content", ""),
+        message_type=m.get("message_type", "text"),
+        file_url=m.get("file_url", ""),
     )
-    msg.created_at.CopyFrom(_ts(m.created_at))
+    if m.get("created_at"):
+        msg.created_at.CopyFrom(_ts(m["created_at"]))
     return msg
 
 
@@ -59,112 +64,39 @@ class MessagingServicer(messaging_pb2_grpc.MessagingServiceServicer):
         return common_pb2.Empty()
 
     def GetMessageHistory(self, request, context):
-        from chat.models import Message
-        from django.db.models import Q
-
         limit = request.limit if request.limit > 0 else 50
 
         if request.group_id:
-            qs = Message.objects.filter(type="group", group_id=request.group_id)
+            rows = repo.get_group_history_sync(request.group_id, limit)
         elif request.channel_id:
-            qs = Message.objects.filter(type="channel", channel_id=request.channel_id)
+            rows = repo.get_channel_history_sync(request.channel_id, limit)
         elif request.private_with_user_id:
-            uid = request.requesting_user_id
-            other = request.private_with_user_id
-            qs = Message.objects.filter(type="private").filter(
-                Q(sender_id=uid, receiver_id=other)
-                | Q(sender_id=other, receiver_id=uid)
+            rows = repo.get_private_history_sync(
+                request.requesting_user_id,
+                request.private_with_user_id,
+                limit,
             )
         else:
             return messaging_pb2.MessageHistoryResponse()
 
-        rows = list(qs.order_by("-created_at")[:limit])
         return messaging_pb2.MessageHistoryResponse(
             messages=[_msg_to_proto(m) for m in reversed(rows)],
             next_cursor="",
         )
 
     def ListConversations(self, request, context):
-        from chat.models import Message
-        from django.db.models import Q, Max
-
-        uid = request.user_id
+        convos_raw = repo.list_conversations_sync(request.user_id)
         convos = []
-
-        # Groups and channels where user participated
-        for row in (
-            Message.objects.filter(type__in=["group", "channel"], sender_id=uid)
-            .values("type", "group_id", "channel_id")
-            .annotate(last_at=Max("created_at"))
-            .order_by("-last_at")
-        ):
-            msg_type = row["type"]
-            if msg_type == "group":
-                cid = row["group_id"]
-                last = (
-                    Message.objects.filter(type="group", group_id=cid)
-                    .order_by("-created_at")
-                    .first()
-                )
-            else:  # channel
-                cid = row["channel_id"]
-                last = (
-                    Message.objects.filter(type="channel", channel_id=cid)
-                    .order_by("-created_at")
-                    .first()
-                )
-            preview = ""
-            ts = None
-            if last:
-                preview = last.content[:80] if last.content else "📎 File"
-                ts = _ts(last.created_at)
+        for row in convos_raw:
             c = messaging_pb2.ConversationSummary(
-                type=msg_type,
-                conversation_id=cid,
-                display_name=cid,
-                last_message_preview=preview,
+                type=row["type"],
+                conversation_id=row["conversation_id"],
+                display_name=row["display_name"],
+                last_message_preview=row.get("last_message_preview", ""),
             )
-            if ts:
-                c.last_message_at.CopyFrom(ts)
+            if row.get("last_message_at"):
+                c.last_message_at.CopyFrom(_ts(row["last_message_at"]))
             convos.append(c)
-
-        # Private conversations
-        seen: set = set()
-        for row in (
-            Message.objects.filter(type="private")
-            .filter(Q(sender_id=uid) | Q(receiver_id=uid))
-            .values("sender_id", "receiver_id")
-            .annotate(last_at=Max("created_at"))
-            .order_by("-last_at")
-        ):
-            other = row["receiver_id"] if row["sender_id"] == uid else row["sender_id"]
-            if other in seen:
-                continue
-            seen.add(other)
-            last = (
-                Message.objects.filter(type="private")
-                .filter(
-                    Q(sender_id=uid, receiver_id=other)
-                    | Q(sender_id=other, receiver_id=uid)
-                )
-                .order_by("-created_at")
-                .first()
-            )
-            preview = ""
-            ts = None
-            if last:
-                preview = last.content[:80] if last.content else "📎 File"
-                ts = _ts(last.created_at)
-            c = messaging_pb2.ConversationSummary(
-                type="private",
-                conversation_id=other,
-                display_name=other,
-                last_message_preview=preview,
-            )
-            if ts:
-                c.last_message_at.CopyFrom(ts)
-            convos.append(c)
-
         return messaging_pb2.ConversationsResponse(conversations=convos)
 
 
@@ -178,8 +110,10 @@ def serve_grpc():
 
 
 if __name__ == "__main__":
-    import django.core.management
-    django.core.management.call_command("migrate", "--noinput", verbosity=0)
+    from db import ensure_indexes
+
+    # Ensure MongoDB indexes before starting (sync — PyMongo)
+    ensure_indexes()
 
     grpc_thread = threading.Thread(target=serve_grpc, daemon=True)
     grpc_thread.start()

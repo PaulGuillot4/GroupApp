@@ -3,10 +3,10 @@ import json
 from datetime import datetime, timezone
 
 from channels.generic.websocket import AsyncWebsocketConsumer
-from asgiref.sync import sync_to_async
 
 from clients import get_auth_stub, get_groups_stub
 from chat.kafka_producer import send_message_event
+import repository as repo
 
 
 def _validate_token_sync(token: str):
@@ -61,8 +61,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             groups = await asyncio.to_thread(_list_user_groups_sync, self.user_id)
             for g in groups:
                 await self._join(f"group_{g.id}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WS] {self.username} group join error: {e}", flush=True)
 
         await send_message_event("presence.changed", {
             "user_id": self.user_id,
@@ -110,8 +110,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
     # ── Action Handlers ──────────────────────────────────────────────
 
     async def _handle_join_room(self, data):
-        from chat.models import Message, MessageStatus
-
         room_id: str = data.get("roomId", "")
         if not room_id:
             return
@@ -132,23 +130,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         # Mark unread messages in this room as delivered, notify senders
         try:
-            unread = await self._unread_messages_for_room(room_id)
+            room_type, room_key = self._parse_room_id(room_id)
+            unread = await repo.get_unread_for_room(room_type, room_key, self.user_id)
             for msg in unread:
-                await sync_to_async(MessageStatus.objects.update_or_create)(
-                    message_id=msg.id,
-                    user_id=self.user_id,
-                    defaults={"status": "delivered"},
-                )
-                await self.channel_layer.group_send(f"user_{msg.sender_id}", {
+                await repo.upsert_status(msg["_id"], self.user_id, "delivered")
+                await self.channel_layer.group_send(f"user_{msg['sender_id']}", {
                     "type": "chat_message_delivered",
-                    "message_id": str(msg.id),
+                    "message_id": str(msg["_id"]),
                 })
         except Exception:
             pass
 
     async def _handle_send_message(self, data):
-        from chat.models import Message
-
         room_id: str = data.get("roomId", "")
         content: str = data.get("content", "")
         message_type: str = data.get("messageType", "text")
@@ -178,20 +171,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
         else:
             return
 
-        msg = await sync_to_async(Message.objects.create)(
-            sender_id=self.user_id,
-            sender_username=self.username,
-            type=msg_type,
-            group_id=group_id,
-            channel_id=channel_id,
-            receiver_id=receiver_id,
-            content=content,
-            message_type=message_type,
-            file_url=file_url,
-        )
+        msg = await repo.insert_message({
+            "sender_id": self.user_id,
+            "sender_username": self.username,
+            "type": msg_type,
+            "group_id": group_id,
+            "channel_id": channel_id,
+            "receiver_id": receiver_id,
+            "content": content,
+            "message_type": message_type,
+            "file_url": file_url,
+        })
 
         payload = {
-            "id": str(msg.id),
+            "id": str(msg["_id"]),
             "type": msg_type,
             "group": group_id,
             "channel": channel_id,
@@ -200,7 +193,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "content": content,
             "message_type": message_type,
             "file_url": file_url,
-            "created_at": msg.created_at.isoformat(),
+            "created_at": msg["created_at"].isoformat(),
             "status": "sent",
         }
         event = {"type": "chat_new_message", "message": payload}
@@ -215,7 +208,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_send(f"user_{receiver_id}", event)
 
         await send_message_event("messages.sent", {
-            "message_id": str(msg.id),
+            "message_id": str(msg["_id"]),
             "sender_id": self.user_id,
             "type": msg_type,
             "group_id": group_id,
@@ -236,18 +229,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         })
 
     async def _handle_mark_as_read(self, data):
-        from chat.models import Message, MessageStatus
-
         message_id: str = data.get("messageId", "")
         if not message_id:
             return
 
         try:
-            await sync_to_async(MessageStatus.objects.update_or_create)(
-                message_id=message_id,
-                user_id=self.user_id,
-                defaults={"status": "read"},
-            )
+            await repo.upsert_status(message_id, self.user_id, "read")
             await send_message_event("messages.read", {
                 "message_id": message_id,
                 "user_id": self.user_id,
@@ -257,9 +244,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             pass
 
         try:
-            sender_id = await sync_to_async(
-                Message.objects.filter(id=message_id).values_list("sender_id", flat=True).first
-            )()
+            sender_id = await repo.get_sender_id(message_id)
             if sender_id and sender_id != self.user_id:
                 await self.channel_layer.group_send(f"user_{sender_id}", {
                     "type": "chat_message_read",
@@ -323,35 +308,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(room, self.channel_name)
         self.joined_rooms.add(room)
 
-    async def _unread_messages_for_room(self, room_id: str):
-        from chat.models import Message
-
+    @staticmethod
+    def _parse_room_id(room_id: str) -> tuple[str, str]:
+        """Return (room_type, room_key) from a room_id string."""
         if room_id.startswith("group_"):
-            group_id = room_id[6:]
-            return await sync_to_async(list)(
-                Message.objects.filter(type="group", group_id=group_id)
-                .exclude(sender_id=self.user_id)
-                .exclude(statuses__user_id=self.user_id,
-                         statuses__status__in=["delivered", "read"])
-            )
-        elif room_id.startswith("channel_"):
-            channel_id = room_id[8:]
-            return await sync_to_async(list)(
-                Message.objects.filter(type="channel", channel_id=channel_id)
-                .exclude(sender_id=self.user_id)
-                .exclude(statuses__user_id=self.user_id,
-                         statuses__status__in=["delivered", "read"])
-            )
-        elif room_id.startswith("private_"):
+            return "group", room_id[6:]
+        if room_id.startswith("channel_"):
+            return "channel", room_id[8:]
+        if room_id.startswith("private_"):
             rest = room_id[8:]
-            id1, id2 = rest.split("_", 1)
-            other = id1 if id2 == self.user_id else id2
-            return await sync_to_async(list)(
-                Message.objects.filter(type="private", sender_id=other, receiver_id=self.user_id)
-                .exclude(statuses__user_id=self.user_id,
-                         statuses__status__in=["delivered", "read"])
-            )
-        return []
+            # For private rooms the "key" is the other user's id
+            # but for unread lookup we need the sender — handled by repo
+            return "private", rest
+        return "", ""
 
     @staticmethod
     def _parse_token(query_string: str) -> str:
