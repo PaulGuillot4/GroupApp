@@ -13,6 +13,7 @@ class CreateGroupBody(BaseModel):
     name: str
     description: str = ""
     subscription_type: str = "free"
+    initial_members: list[str] = []
 
 
 class UpdateGroupBody(BaseModel):
@@ -77,6 +78,7 @@ def list_my_groups_root(current_user: dict = Depends(get_current_user)):
     return list_my_groups(current_user=current_user)
 
 
+@router.post("/", status_code=201, include_in_schema=False)
 @router.post("", status_code=201)
 def create_group(body: CreateGroupBody, current_user: dict = Depends(get_current_user)):
     stub = get_groups_stub()
@@ -87,6 +89,14 @@ def create_group(body: CreateGroupBody, current_user: dict = Depends(get_current
             description=body.description,
             subscription_type=body.subscription_type,
         ))
+        # Add initial members selected in the creation modal
+        for member_id in body.initial_members:
+            try:
+                stub.AddMember(groups_pb2.MembershipRequest(
+                    user_id=member_id, group_id=g.id
+                ))
+            except grpc.RpcError:
+                pass  # best-effort: skip if member can't be added
         return _grpc_group(g)
     except grpc.RpcError as e:
         _handle_rpc_error(e)

@@ -62,7 +62,7 @@ async def proxy_media(path: str):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(
-                f"{FILES_HTTP_URL}/files/{path}", timeout=15.0
+                f"{FILES_HTTP_URL}/{path}", timeout=15.0
             )
             return Response(
                 content=resp.content,

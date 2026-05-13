@@ -142,8 +142,14 @@ def list_conversations(current_user: dict = Depends(get_current_user)):
                     groups_pb2.GetGroupRequest(group_id=c.conversation_id)
                 )
                 name = group.name
-            except Exception:
+            except grpc.RpcError as e:
+                # Group no longer exists or user has no access — skip it
+                if e.code() in (grpc.StatusCode.NOT_FOUND, grpc.StatusCode.PERMISSION_DENIED):
+                    continue
                 name = c.conversation_id
+            except Exception:
+                # Unknown error — skip to avoid showing stale groups
+                continue
 
         last_message = None
         if c.last_message_preview:
